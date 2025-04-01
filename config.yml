@@ -1,0 +1,48 @@
+graphhopper:
+  # OpenStreetMap input file PBF
+  datareader.file: "denmark-latest.osm.pbf"
+  # Local folder used by GraphHopper to store its data
+  graph.location: graph-cache
+
+  graph.elevation.provider: srtm   # 🚀 Enable elevation using SRTM data
+  graph.elevation.cache_dir: ./srtmprovider/  # Where to store elevation data
+  graph.elevation.dataaccess: RAM_STORE  # Store elevation in memory for faster access
+  graph.elevation.interpolate: bilinear  # Interpolate elevation data for better accuracy
+
+  ##### Routing Profiles ####
+  profiles:
+    - name: car
+      custom_model_files: [car.json]
+
+    - name: bike
+      custom_model_files: [bike.json, bike_elevation.json]
+
+  # Speed mode (CH)
+  profiles_ch:
+    - profile: car
+    - profile: bike
+
+  # Required encoded values for bike routing
+  graph.encoded_values: car_access, car_average_speed, bike_access, bike_average_speed, bike_priority, roundabout, mtb_rating, hike_rating, average_slope, surface
+
+  # Exclude only pedestrian paths for motor vehicles but keep cycleways
+  import.osm.ignored_highways: footway, pedestrian, steps
+
+  #### Routing ####
+  routing.max_visited_nodes: 1000000
+
+# Server configuration
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
