@@ -26,7 +26,6 @@ GRAPHOPPER_DIR = Path("C:/Graphhopper")
 GRAPHOPPER_JAR = GRAPHOPPER_DIR / "graphhopper-web-10.0.jar"
 GRAPHOPPER_JAR_URL = "https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar"
 MAP_FILE = GRAPHOPPER_DIR / "denmark-latest.osm.pbf"
-DEPOT = (56.161147, 10.13455)
 CONFIG_SOURCE = Path("config.yml")
 CONFIG_DEST = GRAPHOPPER_DIR / "config.yml"
 JDK_DIR = GRAPHOPPER_DIR / "jdk"
@@ -44,6 +43,17 @@ GRAPHOPPER_DIR.mkdir(parents=True, exist_ok=True)
 print("🔄 Copying config.yml to GraphHopper folder...")
 shutil.copy(CONFIG_SOURCE, CONFIG_DEST)
 
+# 📦 Download GraphHopper JAR if missing
+if not GRAPHOPPER_JAR.exists():
+    print("⬇️ Downloading GraphHopper JAR...")
+    r = requests.get(GRAPHOPPER_JAR_URL, stream=True)
+    with open(GRAPHOPPER_JAR, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+    print("✅ GraphHopper JAR ready.")
+
+
 # 🌍 Download latest Denmark map if missing or first of the month
 map_url = "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
 if not MAP_FILE.exists() or datetime.today().day == 1:
@@ -54,7 +64,8 @@ if not MAP_FILE.exists() or datetime.today().day == 1:
             if chunk:
                 f.write(chunk)
     print("✅ Denmark map ready, deleting cache and updating to newest map.")
-    shutil.rmtree(GRAPHOPPER_DIR / "graph-cache")
+    if (GRAPHOPPER_DIR / "graph-cache").exists():
+        shutil.rmtree(GRAPHOPPER_DIR / "graph-cache")
 
 
 # 📦 Download GraphHopper JAR if missing
