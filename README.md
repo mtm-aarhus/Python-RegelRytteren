@@ -7,8 +7,7 @@
 ## 📦 Prerequisites
 
 1. **OpenOrchestrator**
-2. **Google Chrome** + matching [ChromeDriver](https://chromedriver.chromium.org/downloads)
-
+2. **Google Chrome**
 
 ---
 
