@@ -11,7 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import requests
 
-from optimize_routes import geocode_address
+from optimize_routes import geocode_address, clean_address
 
 def get_default_download_folder():
     return str(Path.home() / "Downloads")
@@ -21,6 +21,7 @@ def download_henstillinger_csv(username: str, password: str, url: str) -> str:
     download_dir = get_default_download_folder()
     
     options = webdriver.ChromeOptions()
+    options.add_argument("--headless=new")
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
@@ -234,7 +235,9 @@ def fetch_vejman_locations(token: str) -> list[dict]:
                 print(f"Ingen koordinater på tilladelse {løbenummer}, henter koordinater for {address} i stedet")
                 coord = extract_coord_from_linestring(case["COORD"]["value"])
             
+            address = clean_address(address)
             if not coord and address:
+                continue
                 coord = geocode_address(address)
             
             if coord:

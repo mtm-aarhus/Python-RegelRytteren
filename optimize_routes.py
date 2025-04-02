@@ -313,7 +313,7 @@ def clean_address(address: str) -> str:
     if match:
         street, number = match.groups()
         return f"{street.strip()} {number.strip()}"
-    return address.strip()
+    return None
 
 def geocode_address(address: str) -> tuple | None:
     url = "https://nominatim.openstreetmap.org/search"
@@ -341,7 +341,8 @@ def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
     if distance > threshold_m:
         return location
     cleaned_address = clean_address(location["adresse"])
-    new_coord = geocode_address(cleaned_address)
+    if cleaned_address:
+        new_coord = geocode_address(cleaned_address)
     if new_coord:
         new_distance = haversine(new_coord, DEPOT)
         if new_distance > threshold_m:
