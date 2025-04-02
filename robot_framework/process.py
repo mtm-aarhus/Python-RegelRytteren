@@ -4,7 +4,7 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from OpenOrchestrator.database.queues import QueueElement
 import smtplib
 import html
-import config
+from robot_framework import config
 from email.message import EmailMessage
 
 import time
