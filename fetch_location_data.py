@@ -22,6 +22,7 @@ def download_henstillinger_csv(username: str, password: str, url: str) -> str:
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
+    options.add_argument('--remote-debugging-pipe')
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
