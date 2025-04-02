@@ -42,7 +42,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
     vehicles_config = {
         "bikes": 1,
-        "cars": 1
+        "cars": 0
     }
 
     # 📁 Ensure GraphHopper directory structure
