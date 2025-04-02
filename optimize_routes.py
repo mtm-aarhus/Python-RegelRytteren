@@ -204,7 +204,7 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-    search_parameters.time_limit.FromSeconds(30)
+    search_parameters.time_limit.FromSeconds(120)
 
     print("🚀 Solving VRP...")
     solution = routing.SolveWithParameters(search_parameters)
