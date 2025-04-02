@@ -2,6 +2,10 @@
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 from OpenOrchestrator.database.queues import QueueElement
+import smtplib
+import html
+import config
+from email.message import EmailMessage
 
 import time
 import requests
@@ -148,9 +152,78 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         # export_mymaps_csv(details, f"mymaps_{vehicle}.csv")
 
     # plot_routes((routes, index_map, "Route"))
+    modtagere = orchestrator_connection.get_constant("RegelRytterenEmails").value
+    bccmail = orchestrator_connection.get_constant("jadt").value
+    to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
+    # 📬 Send email after solving
+    html_body = build_html_email(routes, index_map, locations)
+    SendEmail(to_address = bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
 
     # 🛑 Stop GraphHopper
     print("🛑 Stopping GraphHopper server...")
     gh_process.kill()
     print("✅ Done.")
 
+
+def build_html_email(routes, index_map, locations):
+    html_parts = ['<html><body style="font-family:sans-serif">']
+    html_parts.append('<h1>📬 Dagens ruteoversigt</h1>')
+
+    for vehicle, route in routes.items():
+        details = get_route_details(route, locations)
+        gmaps_link = generate_google_maps_link(route, index_map)
+
+        label = "Cykelrute" if vehicle.startswith("bike") else "Bilrute"
+        number = ''.join(filter(str.isdigit, vehicle))
+        title = f"{label} {number}"
+
+        html_parts.append(f'<h2><a href="{gmaps_link}" target="_blank">{title}</a></h2>')
+
+        html_parts.append("""
+        <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; margin-bottom:30px">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Sagsnummer</th>
+                    <th>Adresse</th>
+                    <th>Information</th>
+                </tr>
+            </thead>
+            <tbody>
+        """)
+
+        for stop in details:
+            if stop["Stop #"] == 0:
+                continue  # skip depot
+            sag = html.escape(stop.get("løbenummer", ""))
+            adresse = html.escape(stop.get("adresse", ""))
+            info = html.escape(stop.get("forseelse", ""))
+            nr = stop["Stop #"]
+            html_parts.append(f"""
+                <tr>
+                    <td>{nr}</td>
+                    <td>{sag}</td>
+                    <td>{adresse}</td>
+                    <td>{info}</td>
+                </tr>
+            """)
+
+        html_parts.append("</tbody></table>")
+
+    html_parts.append("</body></html>")
+    return ''.join(html_parts)
+
+def SendEmail(to_address: str | list[str], subject: str, body: str, bcc: str):
+    msg = EmailMessage()
+    msg['to'] = to_address
+    msg['from'] = "RegelRytteren <regelrytteren@aarhus.dk>"
+    msg['subject'] = subject
+    msg['bcc'] = bcc
+
+    msg.set_content("Please enable HTML to view this message.")
+    msg.add_alternative(body, subtype='html')
+
+    # Send message
+    with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as smtp:
+        smtp.starttls()
+        smtp.send_message(msg)

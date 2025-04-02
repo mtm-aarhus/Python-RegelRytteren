@@ -64,12 +64,6 @@ def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix
                 time_matrix[i][j] = float(t)
                 dist_matrix[i][j] = float(d)
                 
-                if isinf(float(t)):
-                    print(f"[⚠️ No route] t from coords {mode}: {locations[locations[i]]} → {locations[j]}")
-                    return 1_000_000_000
-                if isinf(float(d)):
-                    print(f"[⚠️ No route] d from coords {mode}: {locations[locations[i]]} → {locations[j]}")
-                    return 1_000_000_000
     if use_cache:
         np.savez_compressed(cache_file, time=time_matrix, dist=dist_matrix)
         print(f"💾 Saved cache: {cache_file}")
@@ -224,14 +218,44 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
 
     return extract_solution(solution, routing, manager, time_dimension, all_coords, num_bikes, vehicle_types)
 
+def generate_google_maps_link(route, index_map, vehicle_type="bike", enable_navigation=True):
+    """
+    Generate a Google Maps link for directions starting from current location.
 
+    Args:
+        route (list[int]): Route index list from OR-Tools.
+        index_map (dict): Maps index to (lat, lon).
+        vehicle_type (str): 'bike' or 'car'
+        enable_navigation (bool): Whether to add dir_action=navigate to trigger navigation.
 
-def generate_google_maps_link(route, locations):
-    if not route:
+    Returns:
+        str: A full Google Maps directions link.
+    """
+    if len(route) < 2:
         return "No valid route."
-    base_url = "https://www.google.com/maps/dir/"
-    waypoints = "/".join(f"{locations[i][0]},{locations[i][1]}" for i in route)
-    return base_url + waypoints
+
+    # Convert vehicle type to Google Maps travel mode
+    travelmode = "bicycling" if vehicle_type == "bike" else "driving"
+
+    # Exclude depot (assumed index 0)
+    coords = [index_map[i] for i in route[1:]]
+
+    # Destination = last point; waypoints = all in between
+    destination = coords[-1]
+    waypoints = coords[:-1]
+
+    dest_str = f"{destination[0]},{destination[1]}"
+    waypoints_str = "|".join(f"{lat},{lon}" for lat, lon in waypoints)
+
+    url = f"https://www.google.com/maps/dir/?api=1&destination={dest_str}"
+    if waypoints_str:
+        url += f"&waypoints={waypoints_str}"
+    url += f"&travelmode={travelmode}"
+    if enable_navigation:
+        url += "&dir_action=navigate"
+
+    return url
+
 
 def export_mymaps_csv(route_details, filename):
     rows = []
@@ -249,7 +273,7 @@ def get_route_details(route, full_location_list):
     details = []
     for i, idx in enumerate(route):
         if idx == 0:
-            details.append({"Stop #": i, "adresse": "Depot", "Description": "Start/End"})
+            details.append({"Stop #": i, "adresse": "Blixens", "Description": "Start/End"})
         else:
             meta = full_location_list[idx - 1]  # idx -1 since idx=1 maps to location[0]
             details.append({"Stop #": i, **meta})
