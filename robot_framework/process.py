@@ -72,7 +72,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
                 if chunk:
                     f.write(chunk)
         print("✅ Denmark map ready, deleting cache and updating to newest map.")
-        if (GRAPHOPPER_DIR / "graph-cache").exists:
+        if (GRAPHOPPER_DIR / "graph-cache").exists():
             shutil.rmtree(GRAPHOPPER_DIR / "graph-cache")
 
 
