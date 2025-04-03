@@ -251,7 +251,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
                     else:
                         print("ugyldig addresse")
                         continue
-                    if road_length < 500:    
+                    if road_length < 1000:    
                         print(f"Road length of {address} estimated to be {road_length} meters, using location")
                         coord = geocode
                     else:
