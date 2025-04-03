@@ -244,6 +244,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
                 print(f"Ingen koordinater på tilladelse {løbenummer}, henter koordinater for {address} i stedet")
                 new_address = clean_address(address)
                 if not new_address:
+                    continue
                     print("Ser om adressen kan bruges ift. vejlængde")
                     geocode = geocode_address(address)
                     if geocode:

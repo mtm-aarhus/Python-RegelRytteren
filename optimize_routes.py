@@ -346,7 +346,8 @@ def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
     if cleaned_address:
         new_coord = geocode_coord
 
-    if not new_coord and not cleaned_address:    
+    if not new_coord and not cleaned_address:
+        return location    
         road_length = get_road_length_estimate(geocode_address(location["adresse"]))
         if road_length < 1000:    
             print(f"Road length of {location["adresse"]} estimated to be {road_length}, using location")
