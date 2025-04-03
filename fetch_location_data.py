@@ -10,6 +10,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import requests
+from pyproj import Transformer
+
 
 from optimize_routes import geocode_address, clean_address
 
@@ -123,14 +125,16 @@ def extract_locations_from_csv(csv_path: str) -> list:
     os.remove(csv_path)
     return locations
 
-def extract_coord_from_linestring(linestring: str) -> tuple | None:
-    """Convert first coordinate in LINESTRING to (lat, lon)."""
-    match = re.search(r"\(([\d.]+) ([\d.]+)", linestring)
+def extract_coord_from_linestring(linestring: str) -> tuple[float, float] | None:
+    """
+    Extract the first coordinate from a LINESTRING and convert from EPSG:25832 to WGS84.
+    Returns (lat, lon) or None if parsing fails.
+    """
+    epsg25832_to_wgs84 = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+    match = re.search(r"\(?([\d.]+)\s+([\d.]+)", linestring)
     if match:
         east, north = map(float, match.groups())
-        # Convert from EPSG:25832 to WGS84 (approx)
-        lon = 12 + (east - 500000) / 638000
-        lat = 54 + (north - 6000000) / 111000
+        lon, lat = epsg25832_to_wgs84.transform(east, north)
         return lat, lon
     return None
 

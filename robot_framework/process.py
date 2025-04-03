@@ -159,7 +159,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
         # 📬 Send email after solving
         html_body = build_html_email(routes, index_map, locations)
-        SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+        SendEmail(to_address = bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
 
         # 🛑 Stop GraphHopper
         orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")

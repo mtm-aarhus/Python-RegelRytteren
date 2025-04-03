@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib == 3.10.1",
     "ortools == 9.12.4544",
     "selenium == 4.30.0",
+    "pyproj == 3.7.1"
 ]
 
 [project.optional-dependencies]
