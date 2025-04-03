@@ -47,9 +47,9 @@ def build_html_email(routes, index_map, locations):
         for stop in details:
             if stop["Stop #"] == 0:
                 continue  # skip depot
-            sag = html.escape(stop.get("løbenummer", ""))
-            adresse = html.escape(stop.get("adresse", ""))
-            info = html.escape(stop.get("forseelse", ""))
+            sag = html.escape(stop.get("løbenummer") or "")
+            adresse = html.escape(stop.get("adresse") or "Ikke angivet")
+            info = html.escape(stop.get("forseelse") or "")
             nr = stop["Stop #"]
             html_parts.append(f"""
                 <tr>
@@ -103,7 +103,7 @@ JAVA_BIN = JDK_DIR / "bin" / "java.exe"
 
 vehicles_config = {
     "bikes": 1,
-    "cars": 1
+    "cars": 0
 }
 
 # 📁 Ensure GraphHopper directory structure
@@ -194,11 +194,12 @@ print("✅ GraphHopper is running!")
 
 
 # 🚚 Fetch locations with metadata
-csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
-henstillinger_locations = extract_locations_from_csv(csv_path)
-vejman_locations = fetch_vejman_locations(token)
+# csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
+#henstillinger_locations = extract_locations_from_csv(csv_path)
+# vejman_locations = fetch_vejman_locations(token)
 
-locations = henstillinger_locations+vejman_locations
+# locations = henstillinger_locations+vejman_locations
+locations = fetch_vejman_locations(token)
 locations = [replace_coord_if_too_close(loc) for loc in locations]
 print(f'{len(locations)} stop i alt')
 
@@ -219,7 +220,7 @@ bccmail = orchestrator_connection.get_constant("jadt").value
 to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
 # 📬 Send email after solving
 html_body = build_html_email(routes, index_map, locations)
-SendEmail(to_address = bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+SendEmail(bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
 
 # plot_routes((routes, index_map, "Route"))
 

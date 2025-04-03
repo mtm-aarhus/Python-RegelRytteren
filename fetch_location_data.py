@@ -13,7 +13,7 @@ import requests
 from pyproj import Transformer
 
 
-from optimize_routes import geocode_address, clean_address
+from optimize_routes import geocode_address, clean_address, get_road_length_estimate
 
 def get_default_download_folder():
     return str(Path.home() / "Downloads")
@@ -237,18 +237,40 @@ def fetch_vejman_locations(token: str) -> list[dict]:
             coord = None
 
             if "COORD" in case and "value" in case["COORD"]:
-                print(f"Ingen koordinater på tilladelse {løbenummer}, henter koordinater for {address} i stedet")
+                new_address = address
                 coord = extract_coord_from_linestring(case["COORD"]["value"])
-            
-            address = clean_address(address)
-            if not coord and address:
+
+            if not coord:
+                print(f"Ingen koordinater på tilladelse {løbenummer}, henter koordinater for {address} i stedet")
+                new_address = clean_address(address)
+                if not new_address:
+                    print("Ser om adressen kan bruges ift. vejlængde")
+                    geocode = geocode_address(address)
+                    if geocode:
+                        road_length = get_road_length_estimate(geocode)
+                    else:
+                        print("ugyldig addresse")
+                        continue
+                    if road_length < 500:    
+                        print(f"Road length of {address} estimated to be {road_length} meters, using location")
+                        coord = geocode
+                    else:
+                        print(f"Road length of {address} estimated to be {road_length} meters, skipping location")
+                        continue    
+                    
+                    print(f"Ugyldig adresse")
+                else:
+                    coord = geocode_address(address)
+                
+            if not coord and new_address:
+                print(f"Intet koordinat eller gyldig adresse for tilladelse {løbenummer}, springer over")
                 continue
-                coord = geocode_address(address)
+
             
             if coord:
                 locations.append({
                     "løbenummer": løbenummer,
-                    "adresse": address,
+                    "adresse": new_address,
                     "forseelse": forseelse,
                     "coord": coord
                 })

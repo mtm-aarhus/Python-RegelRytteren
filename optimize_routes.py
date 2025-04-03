@@ -341,11 +341,68 @@ def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
     if distance > threshold_m:
         return location
     cleaned_address = clean_address(location["adresse"])
+    geocode_coord = geocode_address(cleaned_address)
     if cleaned_address:
-        new_coord = geocode_address(cleaned_address)
+        new_coord = geocode_coord
+
+    if not new_coord and not cleaned_address:    
+        road_length = get_road_length_estimate(geocode_address(location["adresse"]))
+        if road_length < 500:    
+            print(f"Road length of {location["adresse"]} estimated to be <500 meters, using location")
+            new_coord = geocode_address(location["adresse"])
     if new_coord:
         new_distance = haversine(new_coord, DEPOT)
         if new_distance > threshold_m:
             print(f"🔁 Replacing coordinate for {location['adresse']} ({distance:.1f}m → {new_distance:.1f}m)")
             location["coord"] = new_coord
     return location
+
+def get_road_length_estimate(coord: tuple, mode="bike", sample_distance=0.0015) -> float | None:
+    """Estimate actual road length near a point using GraphHopper routing."""
+    lat, lon = coord
+    offsets = [-2, -1, 0, 1, 2]  # 5x5 grid
+    snapped_coords = []
+
+    for dx in offsets:
+        for dy in offsets:
+            if dx == 0 and dy == 0:
+                continue
+            sample_lat = lat + dx * sample_distance
+            sample_lon = lon + dy * sample_distance
+            r = requests.get(f"{GRAPHHOPPER_URL}/nearest", params={
+                "point": f"{sample_lat},{sample_lon}",
+                "profile": mode
+            }, timeout=3)
+            try:
+                r.raise_for_status()
+                data = r.json()
+                snapped = tuple(data["coordinates"])
+                if snapped:
+                    snapped_coords.append(snapped)
+            except Exception:
+                continue
+
+    # Try routing between all snapped points and get max actual road distance
+    max_road_distance = 0
+    for i in range(len(snapped_coords)):
+        for j in range(i + 1, len(snapped_coords)):
+            point1 = snapped_coords[i]
+            point2 = snapped_coords[j]
+
+            route = requests.get(f"{GRAPHHOPPER_URL}/route", params={
+                "point": [f"{point1[1]},{point1[0]}", f"{point2[1]},{point2[0]}"],
+                "profile": mode,
+                "locale": "da",
+                "calc_points": "false"
+            }, timeout=5)
+
+            try:
+                route.raise_for_status()
+                data = route.json()
+                dist_km = data["paths"][0]["distance"] / 1000
+                max_road_distance = max(max_road_distance, dist_km * 1000)  # meters
+            except Exception:
+                continue
+
+    return max_road_distance if max_road_distance > 0 else None
+
