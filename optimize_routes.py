@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 from math import radians, cos, sin, asin, sqrt, isinf
 from functools import partial
-import re
+import regex
 import os
 import time
 
@@ -309,8 +309,8 @@ def haversine(coord1, coord2):
     return R * c
 
 def clean_address(address: str) -> str:
-    address = address.split("-")[0]
-    match = re.match(r"([A-Za-zÆØÅæøå .]+)\s+(\d+)", address.strip())
+    address = regex.sub(r"(\d+[A-Za-z]?)-\d+[A-Za-z]?", r"\1", address.strip())
+    match = regex.search(r"([\p{L} .\-]+?)\s+(\d+[A-Za-z]?)", address)
     if match:
         street, number = match.groups()
         return f"{street.strip()} {number.strip()}"

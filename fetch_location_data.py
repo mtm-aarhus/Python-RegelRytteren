@@ -172,7 +172,6 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "&pmCaseVariant=all"
         "&pmCaseTags=ignorerTags"
         "&pmCaseShowAttachments=false"
-        "&dontincludemap=0"
         f"&endDateFrom={today_str}"
         f"&endDateTo={today_str}"
         f"&token={token}",
@@ -188,7 +187,6 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "&pmCaseVariant=all"
         "&pmCaseTags=ignorerTags"
         "&pmCaseShowAttachments=false"
-        "&dontincludemap=0"
         f"&startDateFrom={today_str}"
         f"&startDateTo={today_str}"
         f"&token={token}"
@@ -236,7 +234,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
             forseelse = f"{headers[idx]} - {case.get('rovm_equipment_type', '')} - {case.get('connected_case', '')} - {applicant}".strip(" -")
             coord = None
 
-            if "COORD" in case and "value" in case["COORD"]:
+            if "COORD" in case and isinstance(case["COORD"].get("value"), str):
                 new_address = address
                 coord = extract_coord_from_linestring(case["COORD"]["value"])
 
@@ -244,6 +242,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
                 print(f"Ingen koordinater på tilladelse {løbenummer}, henter koordinater for {address} i stedet")
                 new_address = clean_address(address)
                 if not new_address:
+                    print(f"Kunne ikke finde lokation på {new_address}")
                     continue
                     print("Ser om adressen kan bruges ift. vejlængde")
                     geocode = geocode_address(address)
@@ -275,6 +274,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
                     "forseelse": forseelse,
                     "coord": coord
                 })
+            
 
     return locations
 
