@@ -134,10 +134,11 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
         # 🚚 Fetch locations with metadata
         csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
-        henstillinger_locations = extract_locations_from_csv(csv_path)
-        vejman_locations = fetch_vejman_locations(token)
 
-        locations = henstillinger_locations+vejman_locations
+        if datetime.today().weekday() in [0, 2]:
+            locations = extract_locations_from_csv(csv_path)
+        else:
+            locations = fetch_vejman_locations(token)
         locations = [replace_coord_if_too_close(loc) for loc in locations]
         orchestrator_connection.log_info(f'{len(locations)} stop i alt')
 
