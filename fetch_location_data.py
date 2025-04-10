@@ -151,7 +151,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "pmCaseStates=3"
         "&pmCaseFields=state,type,case_number,authority_reference_number,"
         "webgtno,start_date,end_date,applicant_folder_number,connected_case,"
-        "street_name,applicant,rovm_equipment_type,initials"
+        "street_name,building_to,applicant,rovm_equipment_type,initials"
         "&pmCaseWorker=all"
         "&pmCaseTypes='rovm','gt'"
         "&pmCaseVariant=all"
@@ -166,7 +166,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "pmCaseStates=8"
         "&pmCaseFields=state,type,case_number,authority_reference_number,"
         "webgtno,start_date,end_date,applicant_folder_number,connected_case,"
-        "street_name,applicant,rovm_equipment_type,initials"
+        "street_name,building_to,applicant,rovm_equipment_type,initials"
         "&pmCaseWorker=all"
         "&pmCaseTypes='rovm','gt'"
         "&pmCaseVariant=all"
@@ -181,7 +181,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "pmCaseStates=3,6,8,12"
         "&pmCaseFields=state,type,case_number,authority_reference_number,"
         "webgtno,start_date,end_date,applicant_folder_number,connected_case,"
-        "street_name,applicant,rovm_equipment_type,initials"
+        "street_name,building_to,applicant,rovm_equipment_type,initials"
         "&pmCaseWorker=all"
         "&pmCaseTypes='rovm','gt'"
         "&pmCaseVariant=all"
@@ -228,7 +228,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
             updated_cases = [c for c in updated_cases if valid_end_time(c)]
 
         for case in updated_cases:
-            address = case.get("street_name", "").strip()
+            address = f'{case.get("street_name", "").strip()} {case.get("building_to", "")}'
             løbenummer = case.get("case_number", "")
             applicant = case.get("applicant", "")
             forseelse = f"{headers[idx]} - {case.get('rovm_equipment_type', '')} - {case.get('connected_case', '')} - {applicant}".strip(" -")
