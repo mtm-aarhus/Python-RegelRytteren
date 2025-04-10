@@ -178,7 +178,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         
         # nye tilladelser
         "https://vejman.vd.dk/permissions/getcases?"
-        "pmCaseStates=1,3,6,8,12"
+        "pmCaseStates=3,6,8,12"
         "&pmCaseFields=state,type,case_number,authority_reference_number,"
         "webgtno,start_date,end_date,applicant_folder_number,connected_case,"
         "street_name,applicant,rovm_equipment_type,initials"
