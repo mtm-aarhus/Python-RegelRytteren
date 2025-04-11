@@ -172,7 +172,7 @@ def fetch_vejman_locations(token: str) -> list[dict]:
         "&pmCaseVariant=all"
         "&pmCaseTags=ignorerTags"
         "&pmCaseShowAttachments=false"
-        f"&endDateFrom={today_str}"
+        f"&endDateFrom={yesterday_str}"
         f"&endDateTo={today_str}"
         f"&token={token}",
         
