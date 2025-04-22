@@ -99,77 +99,79 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             shutil.rmtree(extract_temp)
         jdk_zip_path.unlink()
         orchestrator_connection.log_info("JDK ready.")
+    
+    modtagere = orchestrator_connection.get_constant("RegelRytterenEmails").value
+    bccmail = orchestrator_connection.get_constant("jadt").value
+    to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
+    # 🚚 Fetch locations with metadata
+    csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
 
-    # 🚀 Launch GraphHopper
-    orchestrator_connection.log_info("Launching GraphHopper server...")
-    java_cmd = [
-        str(JAVA_BIN),
-        f"-Ddw.graphhopper.datareader.file={MAP_FILE}",
-        "-jar", str(GRAPHOPPER_JAR),
-        "server", str(CONFIG_DEST)
-    ]
-    try:
-        gh_process = subprocess.Popen(java_cmd, cwd=GRAPHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if datetime.today().weekday() in [0, 2]:
+        locations = extract_locations_from_csv(csv_path)
+    else:
+        locations = fetch_vejman_locations(token)
+    locations = [replace_coord_if_too_close(loc) for loc in locations]
+    orchestrator_connection.log_info(f'{len(locations)} stop i alt')
+    if locations:
+        # 🚀 Launch GraphHopper
+        orchestrator_connection.log_info("Launching GraphHopper server...")
+        java_cmd = [
+            str(JAVA_BIN),
+            f"-Ddw.graphhopper.datareader.file={MAP_FILE}",
+            "-jar", str(GRAPHOPPER_JAR),
+            "server", str(CONFIG_DEST)
+        ]
+        try:
+            gh_process = subprocess.Popen(java_cmd, cwd=GRAPHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # 🔄 Wait until GraphHopper is responding
-        orchestrator_connection.log_info("⏳ Waiting for GraphHopper to be ready...")
-        ready = False
-        for _ in range(600):
-            try:
-                r = requests.get("http://localhost:8989/")
-                if r.status_code == 200:
-                    ready = True
-                    break
-            except:
-                pass
-            time.sleep(2)
+            # 🔄 Wait until GraphHopper is responding
+            orchestrator_connection.log_info("⏳ Waiting for GraphHopper to be ready...")
+            ready = False
+            for _ in range(600):
+                try:
+                    r = requests.get("http://localhost:8989/")
+                    if r.status_code == 200:
+                        ready = True
+                        break
+                except:
+                    pass
+                time.sleep(2)
 
-        if not ready:
-            orchestrator_connection.log_info("GraphHopper did not start in time.")
+            if not ready:
+                orchestrator_connection.log_info("GraphHopper did not start in time.")
+                gh_process.kill()
+                exit(1)
+
+            orchestrator_connection.log_info("GraphHopper is running!")
+
+            routes, index_map = solve_vrp(locations, vehicles_config, use_cache=DEBUG_FAST_MATRIX)
+
+            for vehicle, route in routes.items():
+                details = get_route_details(route, locations)
+                gmaps_link = generate_google_maps_link(route, index_map)
+
+                print(f"{vehicle}")
+                for stop in details:
+                    print(f"  Stop {stop['Stop #']}: {stop.get('løbenummer')} {stop.get('adresse', 'Depot')} - {stop.get('forseelse', '')}")
+                print(f"🔗 Google Maps: {gmaps_link}")
+                # export_mymaps_csv(details, f"mymaps_{vehicle}.csv")
+
+            # plot_routes((routes, index_map, "Route"))
+            
+            # 📬 Send email after solving
+            html_body = build_html_email(routes, index_map, locations)
+            SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+
+            # 🛑 Stop GraphHopper
+            orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")
             gh_process.kill()
-            exit(1)
-
-        orchestrator_connection.log_info("GraphHopper is running!")
-
-
-        # 🚚 Fetch locations with metadata
-        csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
-
-        if datetime.today().weekday() in [0, 2]:
-            locations = extract_locations_from_csv(csv_path)
-        else:
-            locations = fetch_vejman_locations(token)
-        locations = [replace_coord_if_too_close(loc) for loc in locations]
-        orchestrator_connection.log_info(f'{len(locations)} stop i alt')
-
-        routes, index_map = solve_vrp(locations, vehicles_config, use_cache=DEBUG_FAST_MATRIX)
-
-        for vehicle, route in routes.items():
-            details = get_route_details(route, locations)
-            gmaps_link = generate_google_maps_link(route, index_map)
-
-            print(f"{vehicle}")
-            for stop in details:
-                print(f"  Stop {stop['Stop #']}: {stop.get('løbenummer')} {stop.get('adresse', 'Depot')} - {stop.get('forseelse', '')}")
-            print(f"🔗 Google Maps: {gmaps_link}")
-            # export_mymaps_csv(details, f"mymaps_{vehicle}.csv")
-
-        # plot_routes((routes, index_map, "Route"))
-        modtagere = orchestrator_connection.get_constant("RegelRytterenEmails").value
-        bccmail = orchestrator_connection.get_constant("jadt").value
-        to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
-        # 📬 Send email after solving
-        html_body = build_html_email(routes, index_map, locations)
-        SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
-
-        # 🛑 Stop GraphHopper
-        orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")
-        gh_process.kill()
-        orchestrator_connection.log_info("✅ Done.")
-    except Exception as e:
-        orchestrator_connection.log_info(f"Process failed: {e}")
-        gh_process.kill()
-        raise(e)
+            orchestrator_connection.log_info("✅ Done.")
+        except Exception as e:
+            orchestrator_connection.log_info(f"Process failed: {e}")
+            gh_process.kill()
+            raise(e)
+    else:
+        SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
 
 
 def build_html_email(routes, index_map, locations):
