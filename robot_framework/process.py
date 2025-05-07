@@ -167,8 +167,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             
             # 📬 Send email after solving
             html_body = build_html_email(routes, index_map, locations)
-            #SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
-            SendEmail(bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+            SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
             
             # 🛑 Stop GraphHopper
             orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")
@@ -179,8 +178,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             gh_process.kill()
             raise(e)
     else:
-        #SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
-        SendEmail(bccmail = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
+        SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
 
 
 def build_html_email(routes, index_map, locations):
