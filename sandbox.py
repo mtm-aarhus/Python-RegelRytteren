@@ -81,7 +81,9 @@ def SendEmail(to_address: str | list[str], subject: str, body: str, bcc: str):
 
 orchestrator_connection = OrchestratorConnection("RegelRytteren", os.getenv('OpenOrchestratorSQL'), os.getenv('OpenOrchestratorKey'), None)
 Credentials = orchestrator_connection.get_credential("Mobility_Workspace")
-
+QueueElements = orchestrator_connection.get_queue_elements("RegelRytteren",None,"ASD")
+if len(QueueElements)==0:
+    print("QueueElements")
 token = orchestrator_connection.get_credential("VejmanToken").password
 
 DEBUG_FAST_MATRIX = False

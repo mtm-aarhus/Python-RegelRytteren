@@ -8,6 +8,7 @@ from robot_framework import config
 from email.message import EmailMessage
 
 import time
+import json
 import requests
 import subprocess
 import shutil
@@ -24,7 +25,9 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     orchestrator_connection.log_trace("Running process.")
     Credentials = orchestrator_connection.get_credential("Mobility_Workspace")
     token = orchestrator_connection.get_credential("VejmanToken").password
-    
+    data = json.loads(queue_element.data)
+     # Assign each field to a named variable
+
     DEBUG_FAST_MATRIX = False
 
     # 🔧 Config
@@ -39,12 +42,12 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     CONFIG_DEST = GRAPHOPPER_DIR / "config.yml"
     JDK_DIR = GRAPHOPPER_DIR / "jdk"
     JAVA_BIN = JDK_DIR / "bin" / "java.exe"
+    
 
     vehicles_config = {
-        "bikes": 1,
-        "cars": 1
+        "bikes": data.get("bikes", 0),
+        "cars": data.get("cars", 0)
     }
-
     # 📁 Ensure GraphHopper directory structure
     GRAPHOPPER_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -105,11 +108,15 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
     # 🚚 Fetch locations with metadata
     csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
+    
+    locations = []
+    henstillinger = data.get("henstillinger", False)
+    vejmantilladelser = data.get("vejman", False)
 
-    if datetime.today().weekday() in [0, 2]:
-        locations = extract_locations_from_csv(csv_path)
-    else:
-        locations = fetch_vejman_locations(token)
+    if henstillinger:
+        locations += extract_locations_from_csv(csv_path)
+    if vejmantilladelser:
+        locations += fetch_vejman_locations(token)
     locations = [replace_coord_if_too_close(loc) for loc in locations]
     orchestrator_connection.log_info(f'{len(locations)} stop i alt')
     if locations:
@@ -160,8 +167,9 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             
             # 📬 Send email after solving
             html_body = build_html_email(routes, index_map, locations)
-            SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
-
+            #SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+            SendEmail(bccmail, subject="Dagens ruter",  body=html_body, bcc = bccmail)
+            
             # 🛑 Stop GraphHopper
             orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")
             gh_process.kill()
@@ -171,7 +179,8 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             gh_process.kill()
             raise(e)
     else:
-        SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
+        #SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
+        SendEmail(bccmail = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
 
 
 def build_html_email(routes, index_map, locations):

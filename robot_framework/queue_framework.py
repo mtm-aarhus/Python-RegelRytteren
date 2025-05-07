@@ -14,6 +14,7 @@ from robot_framework.exceptions import handle_error, BusinessError, log_exceptio
 from robot_framework import process
 from robot_framework import config
 
+from datetime import datetime
 
 def main():
     """The entry point for the framework. Should be called as the first thing when running the robot."""
@@ -22,6 +23,14 @@ def main():
 
     orchestrator_connection.log_trace("Robot Framework started.")
     initialize.initialize(orchestrator_connection)
+    
+    QueueElements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME,None,"NEW")
+    if len(QueueElements)==0:
+        if datetime.today().weekday() in [0, 2]:
+            datastring = """{"bikes": 1, "cars": 1, "vejman": false, "henstillinger": true}"""
+        else:
+            datastring = """{"bikes": 1, "cars": 1, "vejman": true, "henstillinger": false}"""
+        orchestrator_connection.create_queue_element(config.QUEUE_NAME,"ScheduledTrigger",datastring)
 
     queue_element = None
     error_count = 0
@@ -41,7 +50,18 @@ def main():
                     break  # Break queue loop
 
                 try:
-                    process.process(orchestrator_connection, queue_element)
+                    for attempt in range(1, config.QUEUE_ATTEMPTS + 1):
+                        try:
+                            process.process(orchestrator_connection, queue_element)
+                            break
+                        except Exception as e:
+                            orchestrator_connection.log_trace(f"Attempt {attempt} failed for current queue element: {e}")
+                            if attempt < config.QUEUE_ATTEMPTS:
+                                orchestrator_connection.log_trace("Retrying queue element.")
+                                reset.reset(orchestrator_connection)
+                            else:
+                                orchestrator_connection.log_trace(f"Queue element failed after {attempt} attempts.")
+                                raise
                     orchestrator_connection.set_queue_element_status(queue_element.id, QueueStatus.DONE)
 
                 except BusinessError as error:
