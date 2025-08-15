@@ -27,9 +27,9 @@ def main():
     QueueElements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME,None,"NEW")
     if len(QueueElements)==0:
         if datetime.today().weekday() in [0, 2]:
-            datastring = """{"bikes": 1, "cars": 1, "vejman": false, "henstillinger": true}"""
+            datastring = """{"bikes": 2, "cars": 1, "vejman": false, "henstillinger": true}"""
         else:
-            datastring = """{"bikes": 1, "cars": 1, "vejman": true, "henstillinger": false}"""
+            datastring = """{"bikes": 2, "cars": 1, "vejman": true, "henstillinger": false}"""
         orchestrator_connection.create_queue_element(config.QUEUE_NAME,"ScheduledTrigger",datastring)
 
     queue_element = None
