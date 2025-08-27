@@ -25,7 +25,8 @@ dependencies = [
     "ortools == 9.12.4544",
     "selenium == 4.30.0",
     "pyproj == 3.7.1",
-    "regex == 2024.11.6"
+    "regex == 2024.11.6",
+    "pip_system_certs"
 ]
 
 [project.optional-dependencies]
