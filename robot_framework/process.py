@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fetch_location_data import download_henstillinger_csv, extract_locations_from_csv, fetch_vejman_locations
-from optimize_routes import solve_vrp, get_route_details, export_mymaps_csv, generate_google_maps_link, plot_routes, replace_coord_if_too_close
+from optimize_routes import solve_vrp, get_route_details, generate_google_maps_link, replace_coord_if_too_close
 
 # pylint: disable-next=unused-argument
 def process(orchestrator_connection: OrchestratorConnection, queue_element: QueueElement | None = None) -> None:
@@ -48,10 +48,10 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         "bikes": data.get("bikes", 0),
         "cars": data.get("cars", 0)
     }
-    # 📁 Ensure GraphHopper directory structure
+    # Ensure GraphHopper directory structure
     GRAPHOPPER_DIR.mkdir(parents=True, exist_ok=True)
     
-    # 📦 Download GraphHopper JAR if missing
+    # Download GraphHopper JAR if missing
     if not GRAPHOPPER_JAR.exists():
         orchestrator_connection.log_info("Downloading GraphHopper JAR...")
         r = requests.get(GRAPHOPPER_JAR_URL, stream=True)
@@ -61,14 +61,14 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
                     f.write(chunk)
         orchestrator_connection.log_info("GraphHopper JAR ready.")
 
-    # 📄 Copy config into GraphHopper directory
-    orchestrator_connection.log_info("🔄 Copying config.yml to GraphHopper folder...")
+    # Copy config into GraphHopper directory
+    orchestrator_connection.log_info("Copying config.yml to GraphHopper folder...")
     shutil.copy(CONFIG_SOURCE, CONFIG_DEST)
 
-    # 🌍 Download latest Denmark map if missing or first of the month
+    # Download latest Denmark map if missing or first of the month
     map_url = "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
     if not MAP_FILE.exists() or datetime.today().day == 1:
-        orchestrator_connection.log_info("⬇️ Downloading latest Denmark map...")
+        orchestrator_connection.log_info("Downloading latest Denmark map...")
         r = requests.get(map_url, stream=True)
         with open(MAP_FILE, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -81,7 +81,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
     # 📦 Download GraphHopper JAR if missing
     if not JAVA_BIN.exists():
-        orchestrator_connection.log_info("⬇️ Downloading Adoptium JDK (portable)...")
+        orchestrator_connection.log_info("Downloading Adoptium JDK (portable)...")
         jdk_zip_url = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jre_x64_windows_hotspot_17.0.10_7.zip"
         jdk_zip_path = GRAPHOPPER_DIR / "jdk.zip"
         r = requests.get(jdk_zip_url, stream=True)
@@ -106,21 +106,21 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     modtagere = orchestrator_connection.get_constant("RegelRytterenEmails").value
     bccmail = orchestrator_connection.get_constant("jadt").value
     to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
-    # 🚚 Fetch locations with metadata
-    csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
+    # Fetch locations with metadata
     
     locations = []
     henstillinger = data.get("henstillinger", False)
     vejmantilladelser = data.get("vejman", False)
 
     if henstillinger:
+        csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
         locations += extract_locations_from_csv(csv_path)
     if vejmantilladelser:
         locations += fetch_vejman_locations(token)
     locations = [replace_coord_if_too_close(loc) for loc in locations]
     orchestrator_connection.log_info(f'{len(locations)} stop i alt')
     if locations:
-        # 🚀 Launch GraphHopper
+        # Launch GraphHopper
         orchestrator_connection.log_info("Launching GraphHopper server...")
         java_cmd = [
             str(JAVA_BIN),
@@ -132,7 +132,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             gh_process = subprocess.Popen(java_cmd, cwd=GRAPHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             # 🔄 Wait until GraphHopper is responding
-            orchestrator_connection.log_info("⏳ Waiting for GraphHopper to be ready...")
+            orchestrator_connection.log_info("Waiting for GraphHopper to be ready...")
             ready = False
             for _ in range(600):
                 try:
@@ -155,7 +155,8 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
             for vehicle, route in routes.items():
                 details = get_route_details(route, locations)
-                gmaps_link = generate_google_maps_link(route, index_map)
+                vehicle_type = "car" if vehicle.startswith("car") else "bike"
+                gmaps_link = generate_google_maps_link(route, index_map, vehicle_type)
 
                 print(f"{vehicle}")
                 for stop in details:
@@ -170,9 +171,9 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
             
             # 🛑 Stop GraphHopper
-            orchestrator_connection.log_info("🛑 Stopping GraphHopper server...")
+            orchestrator_connection.log_info("Stopping GraphHopper server...")
             gh_process.kill()
-            orchestrator_connection.log_info("✅ Done.")
+            orchestrator_connection.log_info("Done.")
         except Exception as e:
             orchestrator_connection.log_info(f"Process failed: {e}")
             gh_process.kill()

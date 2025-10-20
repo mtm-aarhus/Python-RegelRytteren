@@ -1,9 +1,7 @@
 import requests
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
-from math import radians, cos, sin, asin, sqrt, isinf
+from math import radians, cos, sin, asin, sqrt
 from functools import partial
 import regex
 import os
@@ -258,17 +256,17 @@ def generate_google_maps_link(route, index_map, vehicle_type="bike", enable_navi
     return url
 
 
-def export_mymaps_csv(route_details, filename):
-    rows = []
-    for detail in route_details:
-        if "coord" in detail:
-            rows.append({
-                "Name": f"Stop {detail['Stop #']}: {detail['adresse']}",
-                "Description": f"L\u00f8benummer: {detail['l\u00f8benummer']}\n{detail['forseelse']}",
-                "Latitude": detail['coord'][0],
-                "Longitude": detail['coord'][1],
-            })
-    pd.DataFrame(rows).to_csv(filename, index=False)
+# def export_mymaps_csv(route_details, filename):
+#     rows = []
+#     for detail in route_details:
+#         if "coord" in detail:
+#             rows.append({
+#                 "Name": f"Stop {detail['Stop #']}: {detail['adresse']}",
+#                 "Description": f"L\u00f8benummer: {detail['l\u00f8benummer']}\n{detail['forseelse']}",
+#                 "Latitude": detail['coord'][0],
+#                 "Longitude": detail['coord'][1],
+#             })
+#     pd.DataFrame(rows).to_csv(filename, index=False)
 
 def get_route_details(route, full_location_list):
     details = []
@@ -280,22 +278,22 @@ def get_route_details(route, full_location_list):
             details.append({"Stop #": i, **meta})
     return details
 
-def plot_routes(*route_groups):
-    plt.figure(figsize=(10, 8))
+# def plot_routes(*route_groups):
+#     plt.figure(figsize=(10, 8))
     
-    for routes, index_map, label_prefix in route_groups:
-        for vehicle_name, route in routes.items():
-            coords = [index_map[i] for i in route if i in index_map]
-            lats, lons = zip(*coords)
-            plt.plot(lons, lats, '-o', label=f"{label_prefix}: {vehicle_name}")
+#     for routes, index_map, label_prefix in route_groups:
+#         for vehicle_name, route in routes.items():
+#             coords = [index_map[i] for i in route if i in index_map]
+#             lats, lons = zip(*coords)
+#             plt.plot(lons, lats, '-o', label=f"{label_prefix}: {vehicle_name}")
     
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.title("Optimized Routes")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+#     plt.xlabel("Longitude")
+#     plt.ylabel("Latitude")
+#     plt.title("Optimized Routes")
+#     plt.legend()
+#     plt.grid(True)
+#     plt.tight_layout()
+#     plt.show()
 
 
 def haversine(coord1, coord2):
