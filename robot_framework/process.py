@@ -30,7 +30,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
     DEBUG_FAST_MATRIX = False
 
-    # 🔧 Config
+    # Config
     USERNAME = Credentials.username
     PASSWORD = Credentials.password
     URL = orchestrator_connection.get_constant("MobilityWorkspaceURL").value
@@ -79,7 +79,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             shutil.rmtree(GRAPHOPPER_DIR / "graph-cache")
 
 
-    # 📦 Download GraphHopper JAR if missing
+    # Download GraphHopper JAR if missing
     if not JAVA_BIN.exists():
         orchestrator_connection.log_info("Downloading Adoptium JDK (portable)...")
         jdk_zip_url = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jre_x64_windows_hotspot_17.0.10_7.zip"
@@ -131,7 +131,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         try:
             gh_process = subprocess.Popen(java_cmd, cwd=GRAPHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            # 🔄 Wait until GraphHopper is responding
+            # Wait until GraphHopper is responding
             orchestrator_connection.log_info("Waiting for GraphHopper to be ready...")
             ready = False
             for _ in range(600):
@@ -153,24 +153,34 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
             routes, index_map = solve_vrp(locations, vehicles_config, use_cache=DEBUG_FAST_MATRIX)
 
+            route_data = {}
+
             for vehicle, route in routes.items():
+                # Compute route details and Google Maps link once
                 details = get_route_details(route, locations)
                 vehicle_type = "car" if vehicle.startswith("car") else "bike"
                 gmaps_link = generate_google_maps_link(route, index_map, vehicle_type)
 
-                print(f"{vehicle}")
-                for stop in details:
-                    print(f"  Stop {stop['Stop #']}: {stop.get('løbenummer')} {stop.get('adresse', 'Depot')} - {stop.get('forseelse', '')}")
-                print(f"🔗 Google Maps: {gmaps_link}")
-                # export_mymaps_csv(details, f"mymaps_{vehicle}.csv")
+                # Store all precomputed data
+                route_data[vehicle] = {
+                    "route": route,
+                    "details": details,
+                    "gmaps_link": gmaps_link,
+                    "vehicle_type": vehicle_type,
+                }
 
-            # plot_routes((routes, index_map, "Route"))
-            
-            # 📬 Send email after solving
-            html_body = build_html_email(routes, index_map, locations)
+                # Optional: logging to console
+                # print(f"{vehicle}")
+                # for stop in details:
+                #     print(f"  Stop {stop['Stop #']}: {stop.get('løbenummer')} {stop.get('adresse', 'Depot')} - {stop.get('forseelse', '')}")
+                # print(f"Google Maps: {gmaps_link}")
+
+            # Build and send the email using precomputed data
+            html_body = build_html_email(route_data)
+
             SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
             
-            # 🛑 Stop GraphHopper
+            # Stop GraphHopper
             orchestrator_connection.log_info("Stopping GraphHopper server...")
             gh_process.kill()
             orchestrator_connection.log_info("Done.")
@@ -181,21 +191,19 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     else:
         SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
 
-
-def build_html_email(routes, index_map, locations):
+def build_html_email(route_data):
     html_parts = ['<html><body style="font-family:sans-serif">']
     html_parts.append('<h1>📬 Dagens ruteoversigt</h1>')
 
-    for vehicle, route in routes.items():
-        details = get_route_details(route, locations)
-        gmaps_link = generate_google_maps_link(route, index_map)
+    for vehicle, data in route_data.items():
+        details = data["details"]
+        gmaps_link = data["gmaps_link"]
 
         label = "Cykelrute" if vehicle.startswith("bike") else "Bilrute"
         number = ''.join(filter(str.isdigit, vehicle))
         title = f"{label} {number}"
 
         html_parts.append(f'<h2><a href="{gmaps_link}" target="_blank">{title}</a></h2>')
-
         html_parts.append("""
         <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; margin-bottom:30px">
             <thead>
@@ -210,25 +218,19 @@ def build_html_email(routes, index_map, locations):
         """)
 
         for stop in details:
-            if stop["Stop #"] == 0:
-                continue  # skip depot
-            sag = html.escape(stop.get("løbenummer") or "")
-            adresse = html.escape(stop.get("adresse") or "Ikke angivet")
-            info = html.escape(stop.get("forseelse") or "")
-            nr = stop["Stop #"]
             html_parts.append(f"""
                 <tr>
-                    <td>{nr}</td>
-                    <td>{sag}</td>
-                    <td>{adresse}</td>
-                    <td>{info}</td>
+                    <td>{stop['Stop #']}</td>
+                    <td>{stop.get('løbenummer', '')}</td>
+                    <td>{stop.get('adresse', 'Depot')}</td>
+                    <td>{stop.get('forseelse', '')}</td>
                 </tr>
             """)
 
         html_parts.append("</tbody></table>")
 
     html_parts.append("</body></html>")
-    return ''.join(html_parts)
+    return "".join(html_parts)
 
 def SendEmail(to_address: str | list[str], subject: str, body: str, bcc: str):
     msg = EmailMessage()

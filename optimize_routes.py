@@ -42,7 +42,7 @@ def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix
     cache_file = os.path.join(cache_folder, f"{mode}_matrix_{len(locations)}.npz")
 
     if use_cache and os.path.exists(cache_file):
-        print(f"🧠 Loading cached matrix: {cache_file}")
+        print(f"Loading cached matrix: {cache_file}")
         data = np.load(cache_file)
         
         # Convert deeply into pure Python floats (double `.tolist()` in case of nested arrays)
@@ -51,7 +51,7 @@ def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix
         
         return time, dist
 
-    print(f"🧪 Generating new matrix for mode={mode}...")
+    print(f"Generating new matrix for mode={mode}...")
     size = len(locations)
     time_matrix = [[0.0 for _ in range(size)] for _ in range(size)]
     dist_matrix = [[0.0 for _ in range(size)] for _ in range(size)]
@@ -65,7 +65,7 @@ def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix
                 
     if use_cache:
         np.savez_compressed(cache_file, time=time_matrix, dist=dist_matrix)
-        print(f"💾 Saved cache: {cache_file}")
+        print(f"Saved cache: {cache_file}")
     return time_matrix, dist_matrix
 
 
@@ -205,7 +205,7 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
     search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     search_parameters.time_limit.FromSeconds(120)
 
-    print("🚀 Solving VRP...")
+    print("Solving VRP...")
     solution = routing.SolveWithParameters(search_parameters)
 
     if not solution:
@@ -213,7 +213,7 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
         return {}
 
     print("✅ VRP solved. Extracting routes...")
-    print("🎯 Objective value:", solution.ObjectiveValue())
+    print("Objective value:", solution.ObjectiveValue())
 
     return extract_solution(solution, routing, manager, time_dimension, all_coords, num_bikes, vehicle_types)
 
@@ -256,17 +256,6 @@ def generate_google_maps_link(route, index_map, vehicle_type="bike", enable_navi
     return url
 
 
-# def export_mymaps_csv(route_details, filename):
-#     rows = []
-#     for detail in route_details:
-#         if "coord" in detail:
-#             rows.append({
-#                 "Name": f"Stop {detail['Stop #']}: {detail['adresse']}",
-#                 "Description": f"L\u00f8benummer: {detail['l\u00f8benummer']}\n{detail['forseelse']}",
-#                 "Latitude": detail['coord'][0],
-#                 "Longitude": detail['coord'][1],
-#             })
-#     pd.DataFrame(rows).to_csv(filename, index=False)
 
 def get_route_details(route, full_location_list):
     details = []
@@ -277,23 +266,6 @@ def get_route_details(route, full_location_list):
             meta = full_location_list[idx - 1]  # idx -1 since idx=1 maps to location[0]
             details.append({"Stop #": i, **meta})
     return details
-
-# def plot_routes(*route_groups):
-#     plt.figure(figsize=(10, 8))
-    
-#     for routes, index_map, label_prefix in route_groups:
-#         for vehicle_name, route in routes.items():
-#             coords = [index_map[i] for i in route if i in index_map]
-#             lats, lons = zip(*coords)
-#             plt.plot(lons, lats, '-o', label=f"{label_prefix}: {vehicle_name}")
-    
-#     plt.xlabel("Longitude")
-#     plt.ylabel("Latitude")
-#     plt.title("Optimized Routes")
-#     plt.legend()
-#     plt.grid(True)
-#     plt.tight_layout()
-#     plt.show()
 
 
 def haversine(coord1, coord2):
@@ -355,7 +327,7 @@ def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
     if new_coord:
         new_distance = haversine(new_coord, DEPOT)
         if new_distance > threshold_m:
-            print(f"🔁 Replacing coordinate for {location['adresse']} ({distance:.1f}m → {new_distance:.1f}m)")
+            print(f"Replacing coordinate for {location['adresse']} ({distance:.1f}m → {new_distance:.1f}m)")
             location["coord"] = new_coord
     return location
 
@@ -366,7 +338,7 @@ def get_road_length_estimate(coord: tuple, mode="bike", sample_distance=0.0015) 
     snapped_coords = []
     start_time = time.time()
 
-    print(f"🔍 Estimating road length near {coord}...")
+    print(f"Estimating road length near {coord}...")
 
     for dx in offsets:
         for dy in offsets:
@@ -400,7 +372,7 @@ def get_road_length_estimate(coord: tuple, mode="bike", sample_distance=0.0015) 
         return None
 
     max_road_distance = 0
-    print(f"🧭 Routing between {len(snapped_coords)} snapped points...")
+    print(f"Routing between {len(snapped_coords)} snapped points...")
 
     for i in range(len(snapped_coords)):
         for j in range(i + 1, len(snapped_coords)):
@@ -426,7 +398,7 @@ def get_road_length_estimate(coord: tuple, mode="bike", sample_distance=0.0015) 
                 continue
 
     if max_road_distance > 0:
-        print(f"📏 Estimated road length: {int(max_road_distance)} meters")
+        print(f"Estimated road length: {int(max_road_distance)} meters")
         return max_road_distance
     else:
         print("❌ Could not determine road length.")

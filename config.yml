@@ -4,7 +4,7 @@ graphhopper:
   # Local folder used by GraphHopper to store its data
   graph.location: graph-cache
 
-  graph.elevation.provider: srtm   # 🚀 Enable elevation using SRTM data
+  graph.elevation.provider: srtm   # Enable elevation using SRTM data
   graph.elevation.cache_dir: ./srtmprovider/  # Where to store elevation data
   graph.elevation.dataaccess: RAM_STORE  # Store elevation in memory for faster access
   graph.elevation.interpolate: bilinear  # Interpolate elevation data for better accuracy
