@@ -315,7 +315,7 @@ def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
     new_coord = None  # <-- Initialize variable to avoid UnboundLocalError
 
     geocode_coord = geocode_address(cleaned_address)
-    if cleaned_address:
+    if cleaned_address and geocode_coord:
         new_coord = geocode_coord
 
     if not new_coord and not cleaned_address:
