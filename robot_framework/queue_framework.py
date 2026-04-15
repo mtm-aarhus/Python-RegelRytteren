@@ -14,7 +14,6 @@ from robot_framework.exceptions import handle_error, BusinessError, log_exceptio
 from robot_framework import process
 from robot_framework import config
 
-from datetime import datetime
 
 def main():
     """The entry point for the framework. Should be called as the first thing when running the robot."""
@@ -23,14 +22,6 @@ def main():
 
     orchestrator_connection.log_trace("Robot Framework started.")
     initialize.initialize(orchestrator_connection)
-    
-    QueueElements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME,None,"NEW")
-    if len(QueueElements)==0:
-        if datetime.today().weekday() in [0, 2]:
-            datastring = """{"bikes": 2, "cars": 1, "vejman": false, "henstillinger": true}"""
-        else:
-            datastring = """{"bikes": 2, "cars": 1, "vejman": true, "henstillinger": false}"""
-        orchestrator_connection.create_queue_element(config.QUEUE_NAME,"ScheduledTrigger",datastring)
 
     queue_element = None
     error_count = 0
@@ -74,6 +65,7 @@ def main():
         except Exception as error:
             error_count += 1
             handle_error(f"Process Error #{error_count}", error, queue_element, orchestrator_connection)
+
 
     reset.clean_up(orchestrator_connection)
     reset.close_all(orchestrator_connection)
