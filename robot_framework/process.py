@@ -15,7 +15,7 @@ from pathlib import Path
 from email.message import EmailMessage
 
 from robot_framework import config
-from optimize_routes import solve_vrp, get_route_details, generate_google_maps_link
+from optimize_routes import solve_vrp, get_route_details, generate_google_maps_links
 
 
 def process(orchestrator_connection: OrchestratorConnection, queue_element: QueueElement | None = None) -> None:
@@ -72,15 +72,20 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         if item_type == "permission":
             case_ref = item.get("case_number", "")
             info = item.get("rovm_equipment_type", "")
+            case_id = item.get("case_id")
+            case_url = f"https://vejman.vd.dk/permissions/update.jsp?caseid={case_id}" if case_id else None
         else:
             case_ref = item.get("HenstillingId", "")
             info = item.get("Forseelse", "")
+            pezuuid = item.get("PEZUUID")
+            case_url = f"https://pez.giantleap.net/cases/view/{pezuuid}/case" if pezuuid else None
 
         locations.append({
             "coord": (lat, lon),
             "adresse": item.get("full_address", ""),
             "løbenummer": case_ref,
             "forseelse": info,
+            "case_url": case_url,
         })
 
     orchestrator_connection.log_info(f"{len(locations)} stop i alt")
@@ -96,8 +101,8 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
     # GraphHopper setup
     GRAPHHOPPER_DIR = Path("C:/Graphhopper")
-    GRAPHHOPPER_JAR = GRAPHHOPPER_DIR / "graphhopper-web-10.0.jar"
-    GRAPHHOPPER_JAR_URL = "https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar"
+    GRAPHHOPPER_JAR = GRAPHHOPPER_DIR / "graphhopper-web-11.0.jar"
+    GRAPHHOPPER_JAR_URL = "https://github.com/graphhopper/graphhopper/releases/download/11.0/graphhopper-web-11.0.jar"
     MAP_FILE = GRAPHHOPPER_DIR / "denmark-latest.osm.pbf"
     CONFIG_SOURCE = Path("config.yml")
     CONFIG_DEST = GRAPHHOPPER_DIR / "config.yml"
@@ -106,6 +111,22 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
 
     GRAPHHOPPER_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Remove any stale JARs from previous GraphHopper versions, and wipe
+    # the graph-cache if we detect a version change (graph-cache is built
+    # by a specific GH version and is NOT forward/backward compatible).
+    stale_jars = [
+        p for p in GRAPHHOPPER_DIR.glob("graphhopper-web-*.jar")
+        if p.name != GRAPHHOPPER_JAR.name
+    ]
+    if stale_jars:
+        for p in stale_jars:
+            orchestrator_connection.log_info(f"Removing stale GraphHopper JAR: {p.name}")
+            p.unlink()
+        cache_dir = GRAPHHOPPER_DIR / "graph-cache"
+        if cache_dir.exists():
+            orchestrator_connection.log_info("Removing graph-cache built by old GraphHopper version.")
+            shutil.rmtree(cache_dir)
+
     if not GRAPHHOPPER_JAR.exists():
         orchestrator_connection.log_info("Downloading GraphHopper JAR...")
         r = requests.get(GRAPHHOPPER_JAR_URL, stream=True)
@@ -113,6 +134,11 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+        # Ensure graph-cache is rebuilt against the freshly downloaded JAR.
+        cache_dir = GRAPHHOPPER_DIR / "graph-cache"
+        if cache_dir.exists():
+            orchestrator_connection.log_info("Removing graph-cache after GraphHopper JAR download.")
+            shutil.rmtree(cache_dir)
 
     shutil.copy(CONFIG_SOURCE, CONFIG_DEST)
 
@@ -158,17 +184,36 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         "server", str(CONFIG_DEST),
     ]
 
-    gh_process = subprocess.Popen(java_cmd, cwd=GRAPHHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Discard GraphHopper's chatty stdout. If you need to debug startup,
+    # swap these to open a log file + stderr=subprocess.STDOUT — graph-cache
+    # rebuilds (e.g. after a version upgrade) can take 10-20 min for Denmark.
+    gh_process = subprocess.Popen(
+        java_cmd,
+        cwd=GRAPHHOPPER_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     try:
-        orchestrator_connection.log_info("Waiting for GraphHopper to be ready...")
+        orchestrator_connection.log_info("Waiting for GraphHopper to be ready (first run after upgrade rebuilds the graph-cache, up to 20 min)...")
         ready = False
-        for _ in range(600):
+        # Wait up to 30 min — graph import for Denmark can take a while.
+        for iteration in range(900):
+            # Abort early if the Java process died.
+            if gh_process.poll() is not None:
+                orchestrator_connection.log_info(
+                    f"GraphHopper exited during startup with code {gh_process.returncode}. "
+                    f"Re-enable stdout/stderr piping in process.py to diagnose."
+                )
+                return
             try:
                 if requests.get("http://localhost:8989/", timeout=2).status_code == 200:
                     ready = True
                     break
             except Exception:
                 pass
+            # Heartbeat every 30s so the robot log shows progress.
+            if iteration > 0 and iteration % 15 == 0:
+                orchestrator_connection.log_info(f"Still waiting for GraphHopper... ({iteration * 2}s elapsed)")
             time.sleep(2)
 
         if not ready:
@@ -196,13 +241,13 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
         for vehicle, route in routes.items():
             details = get_route_details(route, locations)
             vehicle_type = "bike" if vehicle.startswith("bike") else "car"
-            gmaps_link = generate_google_maps_link(route, index_map, vehicle_type)
+            gmaps_links = generate_google_maps_links(route, index_map, vehicle_type)
             inspector_initial = vehicle_to_inspector.get(vehicle, vehicle)
 
             route_data[vehicle] = {
                 "route": route,
                 "details": details,
-                "gmaps_link": gmaps_link,
+                "gmaps_links": gmaps_links,
                 "vehicle_type": vehicle_type,
                 "inspector": inspector_initial,
             }
@@ -224,12 +269,23 @@ def build_html_email(route_data):
 
     for vehicle, data in route_data.items():
         details = data["details"]
-        gmaps_link = data["gmaps_link"]
+        gmaps_links = data["gmaps_links"]
         inspector = data["inspector"]
         vehicle_label = "Cykel" if data["vehicle_type"] == "bike" else "Bil"
         title = f"{inspector} ({vehicle_label})"
 
-        html_parts.append(f'<h2><a href="{gmaps_link}" target="_blank">{title}</a></h2>')
+        # Google Maps /dir URLs are capped at 9 waypoints + 1 destination, so
+        # long routes are split into sequential chunks. Show one link per chunk.
+        if len(gmaps_links) == 1:
+            html_parts.append(f'<h2><a href="{gmaps_links[0]}" target="_blank">{title}</a></h2>')
+        elif len(gmaps_links) > 1:
+            link_parts = " | ".join(
+                f'<a href="{url}" target="_blank">Del {i + 1}</a>'
+                for i, url in enumerate(gmaps_links)
+            )
+            html_parts.append(f"<h2>{title} — {link_parts}</h2>")
+        else:
+            html_parts.append(f"<h2>{title}</h2>")
         html_parts.append("""
         <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; margin-bottom:30px">
             <thead>
@@ -244,10 +300,16 @@ def build_html_email(route_data):
         """)
 
         for stop in details:
+            case_ref = stop.get("løbenummer", "")
+            case_url = stop.get("case_url")
+            if case_ref and case_url:
+                case_cell = f'<a href="{case_url}" target="_blank">{case_ref}</a>'
+            else:
+                case_cell = case_ref
             html_parts.append(f"""
                 <tr>
                     <td>{stop['Stop #']}</td>
-                    <td>{stop.get('løbenummer', '')}</td>
+                    <td>{case_cell}</td>
                     <td>{stop.get('adresse', 'Depot')}</td>
                     <td>{stop.get('forseelse', '')}</td>
                 </tr>

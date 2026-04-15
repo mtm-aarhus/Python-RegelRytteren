@@ -23,7 +23,7 @@ graphhopper:
     - profile: bike
 
   # Required encoded values for bike routing
-  graph.encoded_values: car_access, car_average_speed, bike_access, bike_average_speed, bike_priority, roundabout, mtb_rating, hike_rating, average_slope, surface
+  graph.encoded_values: car_access, car_average_speed, bike_access, bike_average_speed, bike_priority, roundabout, mtb_rating, hike_rating, average_slope, surface, bike_road_access, country, road_class
 
   # Exclude only pedestrian paths for motor vehicles but keep cycleways
   import.osm.ignored_highways: footway, pedestrian, steps
