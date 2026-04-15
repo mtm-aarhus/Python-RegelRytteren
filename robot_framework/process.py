@@ -43,7 +43,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     bccmail = orchestrator_connection.get_constant("jadt").value
 
     # Fetch locations from the unified tasks API
-    api_cred = orchestrator_connection.get_credential("TilsynAppAPI")
+    api_cred = orchestrator_connection.get_credential("OpenOrchestratorAPIKey")
     api_url = api_cred.username
     api_key = api_cred.password
 
