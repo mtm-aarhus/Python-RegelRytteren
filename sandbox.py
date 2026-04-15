@@ -37,16 +37,25 @@ orchestrator_connection = OrchestratorConnection(
     os.getenv("OpenOrchestratorSQL"),
     os.getenv("OpenOrchestratorKey"),
     None,
+    None
 )
 
 
 qe = make_queue_element_with_payload(
     payload={
-    "bikes": 2,
-    "cars": 1,
+    "inspectors": [
+        {
+            "initial": "JADT",
+            "vehicle": "Bil"
+        },
+        {
+            "initial": "JADT",
+            "vehicle": "Cykel"
+        }
+    ],
     "vejman": True,
     "henstillinger": True
-},
+    },
     queue_name="RegelRytteren",
     reference="Sandbox",
     status=QueueStatus.NEW, 

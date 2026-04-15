@@ -2,206 +2,232 @@
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 from OpenOrchestrator.database.queues import QueueElement
-import smtplib
-import html
-from robot_framework import config
-from email.message import EmailMessage
 
-import time
+import smtplib
 import json
 import requests
 import subprocess
 import shutil
 import zipfile
+import time
 from datetime import datetime
 from pathlib import Path
+from email.message import EmailMessage
 
-from fetch_location_data import download_henstillinger_csv, extract_locations_from_csv, fetch_vejman_locations
-from optimize_routes import solve_vrp, get_route_details, generate_google_maps_link, replace_coord_if_too_close
+from robot_framework import config
+from optimize_routes import solve_vrp, get_route_details, generate_google_maps_link
 
-# pylint: disable-next=unused-argument
+
 def process(orchestrator_connection: OrchestratorConnection, queue_element: QueueElement | None = None) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-    Credentials = orchestrator_connection.get_credential("Mobility_Workspace")
-    token = orchestrator_connection.get_credential("VejmanToken").password
+
     data = json.loads(queue_element.data)
-     # Assign each field to a named variable
+    inspectors = data.get("inspectors", [])
+    include_vejman = data.get("vejman", True)
+    include_henstillinger = data.get("henstillinger", True)
 
-    DEBUG_FAST_MATRIX = False
+    if not inspectors:
+        orchestrator_connection.log_info("No inspectors selected, skipping.")
+        return
 
-    # Config
-    USERNAME = Credentials.username
-    PASSWORD = Credentials.password
-    URL = orchestrator_connection.get_constant("MobilityWorkspaceURL").value
-    GRAPHOPPER_DIR = Path("C:/Graphhopper")
-    GRAPHOPPER_JAR = GRAPHOPPER_DIR / "graphhopper-web-10.0.jar"
-    GRAPHOPPER_JAR_URL = "https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar"
-    MAP_FILE = GRAPHOPPER_DIR / "denmark-latest.osm.pbf"
-    CONFIG_SOURCE = Path("config.yml")
-    CONFIG_DEST = GRAPHOPPER_DIR / "config.yml"
-    JDK_DIR = GRAPHOPPER_DIR / "jdk"
-    JAVA_BIN = JDK_DIR / "bin" / "java.exe"
-    
-
+    # Build vehicles config from inspectors (order: bikes first, then cars)
+    sorted_inspectors = sorted(inspectors, key=lambda i: (0 if i["vehicle"] == "Cykel" else 1))
     vehicles_config = {
-        "bikes": data.get("bikes", 0),
-        "cars": data.get("cars", 0)
+        "bikes": sum(1 for i in sorted_inspectors if i["vehicle"] == "Cykel"),
+        "cars": sum(1 for i in sorted_inspectors if i["vehicle"] == "Bil"),
     }
-    # Ensure GraphHopper directory structure
-    GRAPHOPPER_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Download GraphHopper JAR if missing
-    if not GRAPHOPPER_JAR.exists():
+
+    # Email recipients from inspector initials
+    to_addresses = [f"{i['initial']}@aarhus.dk" for i in sorted_inspectors]
+    bccmail = orchestrator_connection.get_constant("jadt").value
+
+    # Fetch locations from the unified tasks API
+    api_cred = orchestrator_connection.get_credential("TilsynAppAPI")
+    api_url = api_cred.username
+    api_key = api_cred.password
+
+    resp = requests.get(
+        f"{api_url}tilsyn/tasks",
+        headers={"X-API-Key": api_key},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    items = resp.json()
+
+    # Filter by type and build location list
+    locations = []
+    for item in items:
+        item_type = item.get("type")
+        if item_type == "permission" and not include_vejman:
+            continue
+        if item_type == "henstilling" and not include_henstillinger:
+            continue
+
+        lat = item.get("latitude")
+        lon = item.get("longitude")
+        if lat is None or lon is None:
+            continue
+
+        if item_type == "permission":
+            case_ref = item.get("case_number", "")
+            info = item.get("rovm_equipment_type", "")
+        else:
+            case_ref = item.get("HenstillingId", "")
+            info = item.get("Forseelse", "")
+
+        locations.append({
+            "coord": (lat, lon),
+            "adresse": item.get("full_address", ""),
+            "løbenummer": case_ref,
+            "forseelse": info,
+        })
+
+    orchestrator_connection.log_info(f"{len(locations)} stop i alt")
+
+    if not locations:
+        send_email(
+            to_address=to_addresses,
+            subject="Ingen stop i dag",
+            body="Da der hverken er fundet stop i Vejman eller henstillinger er der ikke nogle ruter i dag.",
+            bcc=bccmail,
+        )
+        return
+
+    # GraphHopper setup
+    GRAPHHOPPER_DIR = Path("C:/Graphhopper")
+    GRAPHHOPPER_JAR = GRAPHHOPPER_DIR / "graphhopper-web-10.0.jar"
+    GRAPHHOPPER_JAR_URL = "https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar"
+    MAP_FILE = GRAPHHOPPER_DIR / "denmark-latest.osm.pbf"
+    CONFIG_SOURCE = Path("config.yml")
+    CONFIG_DEST = GRAPHHOPPER_DIR / "config.yml"
+    JDK_DIR = GRAPHHOPPER_DIR / "jdk"
+    JAVA_BIN = JDK_DIR / "bin" / "java.exe"
+
+    GRAPHHOPPER_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not GRAPHHOPPER_JAR.exists():
         orchestrator_connection.log_info("Downloading GraphHopper JAR...")
-        r = requests.get(GRAPHOPPER_JAR_URL, stream=True)
-        with open(GRAPHOPPER_JAR, 'wb') as f:
+        r = requests.get(GRAPHHOPPER_JAR_URL, stream=True)
+        with open(GRAPHHOPPER_JAR, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        orchestrator_connection.log_info("GraphHopper JAR ready.")
 
-    # Copy config into GraphHopper directory
-    orchestrator_connection.log_info("Copying config.yml to GraphHopper folder...")
     shutil.copy(CONFIG_SOURCE, CONFIG_DEST)
 
-    # Download latest Denmark map if missing or first of the month
     map_url = "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
     if not MAP_FILE.exists() or datetime.today().day == 1:
         orchestrator_connection.log_info("Downloading latest Denmark map...")
         r = requests.get(map_url, stream=True)
-        with open(MAP_FILE, 'wb') as f:
+        with open(MAP_FILE, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        orchestrator_connection.log_info("Denmark map ready, deleting cache and updating to newest map.")
-        if (GRAPHOPPER_DIR / "graph-cache").exists():
-            shutil.rmtree(GRAPHOPPER_DIR / "graph-cache")
+        cache_dir = GRAPHHOPPER_DIR / "graph-cache"
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
 
-
-    # Download GraphHopper JAR if missing
     if not JAVA_BIN.exists():
-        orchestrator_connection.log_info("Downloading Adoptium JDK (portable)...")
+        orchestrator_connection.log_info("Downloading Adoptium JDK...")
         jdk_zip_url = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jre_x64_windows_hotspot_17.0.10_7.zip"
-        jdk_zip_path = GRAPHOPPER_DIR / "jdk.zip"
+        jdk_zip_path = GRAPHHOPPER_DIR / "jdk.zip"
         r = requests.get(jdk_zip_url, stream=True)
-        with open(jdk_zip_path, 'wb') as f:
+        with open(jdk_zip_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        with zipfile.ZipFile(jdk_zip_path, 'r') as zip_ref:
-            extract_temp = GRAPHOPPER_DIR / "jdk_temp"
+        with zipfile.ZipFile(jdk_zip_path, "r") as zip_ref:
+            extract_temp = GRAPHHOPPER_DIR / "jdk_temp"
             extract_temp.mkdir(exist_ok=True)
             zip_ref.extractall(extract_temp)
             subdirs = [d for d in extract_temp.iterdir() if d.is_dir()]
             if subdirs:
-                inner_jdk = subdirs[0]
                 JDK_DIR.mkdir(exist_ok=True)
-                for item in inner_jdk.iterdir():
+                for item in subdirs[0].iterdir():
                     shutil.move(str(item), str(JDK_DIR))
             shutil.rmtree(extract_temp)
         jdk_zip_path.unlink()
-        orchestrator_connection.log_info("JDK ready.")
-    
-    modtagere = orchestrator_connection.get_constant("RegelRytterenEmails").value
-    bccmail = orchestrator_connection.get_constant("jadt").value
-    to_address = [email.strip() for email in modtagere.split(",") if email.strip()]
-    # Fetch locations with metadata
-    
-    locations = []
-    henstillinger = data.get("henstillinger", False)
-    vejmantilladelser = data.get("vejman", False)
 
-    if henstillinger:
-        csv_path = download_henstillinger_csv(USERNAME, PASSWORD, URL)
-        locations += extract_locations_from_csv(csv_path)
-    if vejmantilladelser:
-        locations += fetch_vejman_locations(token)
-    locations = [replace_coord_if_too_close(loc) for loc in locations]
-    orchestrator_connection.log_info(f'{len(locations)} stop i alt')
-    if locations:
-        # Launch GraphHopper
-        orchestrator_connection.log_info("Launching GraphHopper server...")
-        java_cmd = [
-            str(JAVA_BIN),
-            f"-Ddw.graphhopper.datareader.file={MAP_FILE}",
-            "-jar", str(GRAPHOPPER_JAR),
-            "server", str(CONFIG_DEST)
-        ]
-        try:
-            gh_process = subprocess.Popen(java_cmd, cwd=GRAPHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Launch GraphHopper and solve
+    orchestrator_connection.log_info("Launching GraphHopper server...")
+    java_cmd = [
+        str(JAVA_BIN),
+        f"-Ddw.graphhopper.datareader.file={MAP_FILE}",
+        "-jar", str(GRAPHHOPPER_JAR),
+        "server", str(CONFIG_DEST),
+    ]
 
-            # Wait until GraphHopper is responding
-            orchestrator_connection.log_info("Waiting for GraphHopper to be ready...")
-            ready = False
-            for _ in range(600):
-                try:
-                    r = requests.get("http://localhost:8989/")
-                    if r.status_code == 200:
-                        ready = True
-                        break
-                except:
-                    pass
-                time.sleep(2)
+    gh_process = subprocess.Popen(java_cmd, cwd=GRAPHHOPPER_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        orchestrator_connection.log_info("Waiting for GraphHopper to be ready...")
+        ready = False
+        for _ in range(600):
+            try:
+                if requests.get("http://localhost:8989/", timeout=2).status_code == 200:
+                    ready = True
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
 
-            if not ready:
-                orchestrator_connection.log_info("GraphHopper did not start in time.")
-                gh_process.kill()
-                exit(1)
-
-            orchestrator_connection.log_info("GraphHopper is running!")
-
-            routes, index_map = solve_vrp(locations, vehicles_config, use_cache=DEBUG_FAST_MATRIX)
-
-            route_data = {}
-
-            for vehicle, route in routes.items():
-                # Compute route details and Google Maps link once
-                details = get_route_details(route, locations)
-                vehicle_type = "car" if vehicle.startswith("car") else "bike"
-                gmaps_link = generate_google_maps_link(route, index_map, vehicle_type)
-
-                # Store all precomputed data
-                route_data[vehicle] = {
-                    "route": route,
-                    "details": details,
-                    "gmaps_link": gmaps_link,
-                    "vehicle_type": vehicle_type,
-                }
-
-                # Optional: logging to console
-                # print(f"{vehicle}")
-                # for stop in details:
-                #     print(f"  Stop {stop['Stop #']}: {stop.get('løbenummer')} {stop.get('adresse', 'Depot')} - {stop.get('forseelse', '')}")
-                # print(f"Google Maps: {gmaps_link}")
-
-            # Build and send the email using precomputed data
-            html_body = build_html_email(route_data)
-
-            SendEmail(to_address = to_address, subject="Dagens ruter",  body=html_body, bcc = bccmail)
-            
-            # Stop GraphHopper
-            orchestrator_connection.log_info("Stopping GraphHopper server...")
+        if not ready:
+            orchestrator_connection.log_info("GraphHopper did not start in time.")
             gh_process.kill()
-            orchestrator_connection.log_info("Done.")
-        except Exception as e:
-            orchestrator_connection.log_info(f"Process failed: {e}")
-            gh_process.kill()
-            raise(e)
-    else:
-        SendEmail(to_address = to_address, subject="Ingen stop i dag",  body="Da der hverken er fundet stop i Vejman eller Mobility Workspace er der ikke nogle ruter i dag", bcc = bccmail)
+            return
+
+        orchestrator_connection.log_info("GraphHopper is running!")
+
+        routes, index_map = solve_vrp(locations, vehicles_config)
+
+        # Map vehicle labels to inspector names for the email
+        vehicle_to_inspector = {}
+        bike_idx = 0
+        car_idx = 0
+        for inspector in sorted_inspectors:
+            if inspector["vehicle"] == "Cykel":
+                bike_idx += 1
+                vehicle_to_inspector[f"bike_{bike_idx}"] = inspector["initial"]
+            else:
+                car_idx += 1
+                vehicle_to_inspector[f"car_{car_idx}"] = inspector["initial"]
+
+        route_data = {}
+        for vehicle, route in routes.items():
+            details = get_route_details(route, locations)
+            vehicle_type = "bike" if vehicle.startswith("bike") else "car"
+            gmaps_link = generate_google_maps_link(route, index_map, vehicle_type)
+            inspector_initial = vehicle_to_inspector.get(vehicle, vehicle)
+
+            route_data[vehicle] = {
+                "route": route,
+                "details": details,
+                "gmaps_link": gmaps_link,
+                "vehicle_type": vehicle_type,
+                "inspector": inspector_initial,
+            }
+
+        html_body = build_html_email(route_data)
+        send_email(to_address=to_addresses, subject="Dagens ruter", body=html_body, bcc=bccmail)
+
+        orchestrator_connection.log_info("Done.")
+    except Exception as e:
+        orchestrator_connection.log_info(f"Process failed: {e}")
+        raise
+    finally:
+        gh_process.kill()
+
 
 def build_html_email(route_data):
     html_parts = ['<html><body style="font-family:sans-serif">']
-    html_parts.append('<h1>📬 Dagens ruteoversigt</h1>')
+    html_parts.append("<h1>Dagens ruteoversigt</h1>")
 
     for vehicle, data in route_data.items():
         details = data["details"]
         gmaps_link = data["gmaps_link"]
-
-        label = "Cykelrute" if vehicle.startswith("bike") else "Bilrute"
-        number = ''.join(filter(str.isdigit, vehicle))
-        title = f"{label} {number}"
+        inspector = data["inspector"]
+        vehicle_label = "Cykel" if data["vehicle_type"] == "bike" else "Bil"
+        title = f"{inspector} ({vehicle_label})"
 
         html_parts.append(f'<h2><a href="{gmaps_link}" target="_blank">{title}</a></h2>')
         html_parts.append("""
@@ -232,17 +258,17 @@ def build_html_email(route_data):
     html_parts.append("</body></html>")
     return "".join(html_parts)
 
-def SendEmail(to_address: str | list[str], subject: str, body: str, bcc: str):
+
+def send_email(to_address: str | list[str], subject: str, body: str, bcc: str):
     msg = EmailMessage()
-    msg['to'] = to_address
-    msg['from'] = "RegelRytteren <regelrytteren@aarhus.dk>"
-    msg['subject'] = subject
-    msg['bcc'] = bcc
+    msg["to"] = to_address
+    msg["from"] = "RegelRytteren <regelrytteren@aarhus.dk>"
+    msg["subject"] = subject
+    msg["bcc"] = bcc
 
     msg.set_content("Please enable HTML to view this message.")
-    msg.add_alternative(body, subtype='html')
+    msg.add_alternative(body, subtype="html")
 
-    # Send message
     with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as smtp:
         smtp.starttls()
         smtp.send_message(msg)

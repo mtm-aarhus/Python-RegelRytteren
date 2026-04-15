@@ -1,11 +1,9 @@
+import os
 import requests
 import numpy as np
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 from math import radians, cos, sin, asin, sqrt
 from functools import partial
-import regex
-import os
-import time
 
 GRAPHHOPPER_URL = "http://localhost:8989"
 DEPOT = (56.161147, 10.13455)
@@ -14,47 +12,43 @@ STOP_TIME = 20
 TOTAL_MINUTES = int(WORK_HOURS * 60)
 MAX_BIKE_KM = 30
 DEPOT_INDEX = 0
-FIXED_COST = 10
 CENTER_COORD = (56.15625426608341, 10.214135214922244)
 CENTER_RADIUS_M = 2000
-CENTER_PENALTY_MINUTES = 20  # add 20 mins to car if going to central location
+CENTER_PENALTY_MINUTES = 20
+
 
 def get_travel_data(coord1, coord2, mode):
     params = {
         "point": [f"{coord1[0]},{coord1[1]}", f"{coord2[0]},{coord2[1]}"],
         "profile": mode,
         "locale": "da",
-        "calc_points": "false"
+        "calc_points": "false",
     }
     try:
         r = requests.get(f"{GRAPHHOPPER_URL}/route", params=params, timeout=5)
         r.raise_for_status()
         data = r.json()
         if "paths" in data:
-            duration = data["paths"][0]["time"] / 60000  # minutes
-            distance = data["paths"][0]["distance"] / 1000  # km
+            duration = data["paths"][0]["time"] / 60000
+            distance = data["paths"][0]["distance"] / 1000
             return duration, distance
-    except:
+    except Exception:
         return float("inf"), float("inf")
 
-def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix_cache"):
+
+def create_distance_matrix(locations, mode, use_cache=False, cache_folder="matrix_cache"):
     os.makedirs(cache_folder, exist_ok=True)
     cache_file = os.path.join(cache_folder, f"{mode}_matrix_{len(locations)}.npz")
 
     if use_cache and os.path.exists(cache_file):
-        print(f"Loading cached matrix: {cache_file}")
         data = np.load(cache_file)
-        
-        # Convert deeply into pure Python floats (double `.tolist()` in case of nested arrays)
-        time = [[float(cell) for cell in row] for row in data["time"].tolist()]
-        dist = [[float(cell) for cell in row] for row in data["dist"].tolist()]
-        
-        return time, dist
+        time_m = [[float(cell) for cell in row] for row in data["time"].tolist()]
+        dist_m = [[float(cell) for cell in row] for row in data["dist"].tolist()]
+        return time_m, dist_m
 
-    print(f"Generating new matrix for mode={mode}...")
     size = len(locations)
-    time_matrix = [[0.0 for _ in range(size)] for _ in range(size)]
-    dist_matrix = [[0.0 for _ in range(size)] for _ in range(size)]
+    time_matrix = [[0.0] * size for _ in range(size)]
+    dist_matrix = [[0.0] * size for _ in range(size)]
 
     for i in range(size):
         for j in range(size):
@@ -62,24 +56,11 @@ def create_distance_matrix(locations, mode, use_cache=True, cache_folder="matrix
                 t, d = get_travel_data(locations[i], locations[j], mode)
                 time_matrix[i][j] = float(t)
                 dist_matrix[i][j] = float(d)
-                
+
     if use_cache:
         np.savez_compressed(cache_file, time=time_matrix, dist=dist_matrix)
-        print(f"Saved cache: {cache_file}")
     return time_matrix, dist_matrix
 
-
-def generate_matrices(locations, vehicle_types, use_cache=True):
-    all_coords = [DEPOT] + [loc["coord"] for loc in locations]
-    time_matrices = {}
-    dist_matrices = {}
-
-    for vtype in set(vehicle_types):
-        time_matrices[vtype], dist_matrices[vtype] = create_distance_matrix(
-            all_coords, vtype, use_cache=use_cache
-        )
-
-    return all_coords, time_matrices, dist_matrices
 
 def time_callback(from_index, to_index, matrix, vtype, manager, coords):
     from_node = manager.IndexToNode(from_index)
@@ -100,32 +81,8 @@ def distance_callback(from_index, to_index, matrix, manager):
     to_node = manager.IndexToNode(to_index)
     return int(matrix[from_node][to_node] * 1000)
 
-def extract_solution(solution, routing, manager, time_dimension, all_coords, num_bikes, vehicle_types):
-    routes = {}
-    index_map = {i: coord for i, coord in enumerate(all_coords)}
 
-    for vehicle_id in range(len(vehicle_types)):
-        start = time_dimension.CumulVar(routing.Start(vehicle_id))
-        end = time_dimension.CumulVar(routing.End(vehicle_id))
-        duration = solution.Value(end) - solution.Value(start)
-        label = f"bike_{vehicle_id + 1}" if vehicle_types[vehicle_id] == "bike" else f"car_{vehicle_id + 1 - num_bikes}"
-        print(f"⏱ {label}: {duration} minutes")
-
-    for vehicle_id in range(len(vehicle_types)):
-        index = routing.Start(vehicle_id)
-        route = []
-        while not routing.IsEnd(index):
-            node = manager.IndexToNode(index)
-            route.append(node)
-            index = solution.Value(routing.NextVar(index))
-        route.append(manager.IndexToNode(index))
-        label = f"bike_{vehicle_id + 1}" if vehicle_types[vehicle_id] == "bike" else f"car_{vehicle_id + 1 - num_bikes}"
-        print(f"[DEBUG] {label} has {len(route) - 2} stops (excluding depot)")
-        routes[label] = route
-
-    return routes, index_map
-
-def solve_vrp(locations, vehicles_config, use_cache=True):
+def solve_vrp(locations, vehicles_config, use_cache=False):
     all_coords = [DEPOT] + [loc["coord"] for loc in locations]
 
     num_bikes = vehicles_config.get("bikes", 0)
@@ -146,7 +103,6 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
 
     for vehicle_id in range(vehicle_count):
         vtype = vehicle_types[vehicle_id]
-        print("Generating callbacks for " + vtype)
         time_cb = partial(time_callback, matrix=time_matrices[vtype], vtype=vtype, manager=manager, coords=all_coords)
         dist_cb = partial(distance_callback, matrix=dist_matrices[vtype], manager=manager)
 
@@ -163,7 +119,6 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
     time_dimension = routing.GetDimensionOrDie("Time")
     time_dimension.SetGlobalSpanCostCoefficient(500)
 
-    # Enforce hard limits at both start and end, and ask solver to minimize
     for vehicle_id in range(vehicle_count):
         start_var = time_dimension.CumulVar(routing.Start(vehicle_id))
         end_var = time_dimension.CumulVar(routing.End(vehicle_id))
@@ -188,15 +143,11 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
     visit_dim.SetGlobalSpanCostCoefficient(500)
 
     total_stops = len(locations)
-    if total_stops >= vehicle_count * 5:
-        min_stops = 4
-    else:
-        min_stops = max(1, int(total_stops / vehicle_count) - 2)
+    min_stops = 4 if total_stops >= vehicle_count * 5 else max(1, int(total_stops / vehicle_count) - 2)
 
     for vehicle_id in range(vehicle_count):
         visit_dim.CumulVar(routing.End(vehicle_id)).SetMin(min_stops)
 
-    # Allow dropping locations with a reasonable penalty
     for idx in range(1, len(all_coords)):
         routing.AddDisjunction([manager.NodeToIndex(idx)], 50000)
 
@@ -205,41 +156,44 @@ def solve_vrp(locations, vehicles_config, use_cache=True):
     search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     search_parameters.time_limit.FromSeconds(120)
 
-    print("Solving VRP...")
     solution = routing.SolveWithParameters(search_parameters)
 
     if not solution:
-        print("❌ No solution found.")
-        return {}
+        return {}, {}
 
-    print("✅ VRP solved. Extracting routes...")
-    print("Objective value:", solution.ObjectiveValue())
+    routes = {}
+    index_map = {i: coord for i, coord in enumerate(all_coords)}
 
-    return extract_solution(solution, routing, manager, time_dimension, all_coords, num_bikes, vehicle_types)
+    for vehicle_id in range(vehicle_count):
+        index = routing.Start(vehicle_id)
+        route = []
+        while not routing.IsEnd(index):
+            route.append(manager.IndexToNode(index))
+            index = solution.Value(routing.NextVar(index))
+        route.append(manager.IndexToNode(index))
+        label = f"bike_{vehicle_id + 1}" if vehicle_types[vehicle_id] == "bike" else f"car_{vehicle_id + 1 - num_bikes}"
+        routes[label] = route
+
+    return routes, index_map
+
+
+def get_route_details(route, full_location_list):
+    details = []
+    for i, idx in enumerate(route):
+        if idx == 0:
+            details.append({"Stop #": i, "adresse": "Blixens", "Description": "Start/End"})
+        else:
+            meta = full_location_list[idx - 1]
+            details.append({"Stop #": i, **meta})
+    return details
+
 
 def generate_google_maps_link(route, index_map, vehicle_type="bike", enable_navigation=True):
-    """
-    Generate a Google Maps link for directions starting from current location.
-
-    Args:
-        route (list[int]): Route index list from OR-Tools.
-        index_map (dict): Maps index to (lat, lon).
-        vehicle_type (str): 'bike' or 'car'
-        enable_navigation (bool): Whether to add dir_action=navigate to trigger navigation.
-
-    Returns:
-        str: A full Google Maps directions link.
-    """
     if len(route) < 2:
         return "No valid route."
 
-    # Convert vehicle type to Google Maps travel mode
     travelmode = "bicycling" if vehicle_type == "bike" else "driving"
-
-    # Exclude depot (assumed index 0)
     coords = [index_map[i] for i in route[1:]]
-
-    # Destination = last point; waypoints = all in between
     destination = coords[-1]
     waypoints = coords[:-1]
 
@@ -252,20 +206,7 @@ def generate_google_maps_link(route, index_map, vehicle_type="bike", enable_navi
     url += f"&travelmode={travelmode}"
     if enable_navigation:
         url += "&dir_action=navigate"
-
     return url
-
-
-
-def get_route_details(route, full_location_list):
-    details = []
-    for i, idx in enumerate(route):
-        if idx == 0:
-            details.append({"Stop #": i, "adresse": "Blixens", "Description": "Start/End"})
-        else:
-            meta = full_location_list[idx - 1]  # idx -1 since idx=1 maps to location[0]
-            details.append({"Stop #": i, **meta})
-    return details
 
 
 def haversine(coord1, coord2):
@@ -274,132 +215,6 @@ def haversine(coord1, coord2):
     R = 6371000
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
     c = 2 * asin(sqrt(a))
     return R * c
-
-def clean_address(address: str) -> str:
-    address = regex.sub(r"(\d+[A-Za-z]?)-\d+[A-Za-z]?", r"\1", address.strip())
-    match = regex.search(r"([\p{L} .\-]+?)\s+(\d+[A-Za-z]?)", address)
-    if match:
-        street, number = match.groups()
-        return f"{street.strip()} {number.strip()}"
-    return None
-
-def geocode_address(address: str) -> tuple | None:
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": f"{address}, Aarhus, Denmark",
-        "format": "json",
-        "limit": 1,
-    }
-    headers = {
-        "User-Agent": "AarhusRoutePlanner/1.0 (aarhuskommune.dk)"
-    }
-    try:
-        r = requests.get(url, params=params, headers=headers, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-        if data:
-            return (float(data[0]["lat"]), float(data[0]["lon"]))
-    except Exception as e:
-        print(f"Geocoding failed for '{address}': {e}")
-    return None
-
-def replace_coord_if_too_close(location: dict, threshold_m=100) -> dict:
-    coord = location["coord"]
-    distance = haversine(coord, DEPOT)
-    if distance > threshold_m:
-        return location
-    cleaned_address = clean_address(location["adresse"])
-    new_coord = None  # <-- Initialize variable to avoid UnboundLocalError
-
-    geocode_coord = geocode_address(cleaned_address)
-    if cleaned_address and geocode_coord:
-        new_coord = geocode_coord
-
-    if not new_coord and not cleaned_address:
-        return location    
-        # road_length = get_road_length_estimate(geocode_address(location["adresse"]))
-        # if road_length < 1000:    
-        #     print(f"Road length of {location["adresse"]} estimated to be {road_length}, using location")
-        #     new_coord = geocode_address(location["adresse"])
-    if new_coord:
-        new_distance = haversine(new_coord, DEPOT)
-        if new_distance > threshold_m:
-            print(f"Replacing coordinate for {location['adresse']} ({distance:.1f}m → {new_distance:.1f}m)")
-            location["coord"] = new_coord
-    return location
-
-def get_road_length_estimate(coord: tuple, mode="bike", sample_distance=0.0015) -> float | None:
-    """Estimate actual road length near a point using GraphHopper routing."""
-    lat, lon = coord
-    offsets = [-2, -1, 0, 1, 2]  # 5x5 grid
-    snapped_coords = []
-    start_time = time.time()
-
-    print(f"Estimating road length near {coord}...")
-
-    for dx in offsets:
-        for dy in offsets:
-            if time.time() - start_time > 10:
-                print("⏱️ Timeout during nearest snapping phase.")
-                return None
-
-            if dx == 0 and dy == 0:
-                continue
-
-            sample_lat = lat + dx * sample_distance
-            sample_lon = lon + dy * sample_distance
-            try:
-                r = requests.get(f"{GRAPHHOPPER_URL}/nearest", params={
-                    "point": f"{sample_lat},{sample_lon}",
-                    "profile": mode
-                }, timeout=3)
-                r.raise_for_status()
-                data = r.json()
-                snapped = data.get("coordinates")
-                if snapped:
-                    snapped_coords.append(tuple(snapped))
-                else:
-                    print(f"[ℹ️ No snapped point] at ({sample_lat:.5f}, {sample_lon:.5f})")
-            except Exception as e:
-                print(f"[⚠️ Nearest failed] at ({sample_lat:.5f}, {sample_lon:.5f}): {e}")
-                continue
-
-    if len(snapped_coords) < 2:
-        print("❌ Not enough snapped points for road length estimate.")
-        return None
-
-    max_road_distance = 0
-    print(f"Routing between {len(snapped_coords)} snapped points...")
-
-    for i in range(len(snapped_coords)):
-        for j in range(i + 1, len(snapped_coords)):
-            if time.time() - start_time > 10:
-                print("⏱️ Timeout during routing phase.")
-                return None
-
-            point1 = snapped_coords[i]
-            point2 = snapped_coords[j]
-            try:
-                route = requests.get(f"{GRAPHHOPPER_URL}/route", params={
-                    "point": [f"{point1[1]},{point1[0]}", f"{point2[1]},{point2[0]}"],
-                    "profile": mode,
-                    "locale": "da",
-                    "calc_points": "false"
-                }, timeout=5)
-                route.raise_for_status()
-                data = route.json()
-                dist_m = data["paths"][0]["distance"]
-                max_road_distance = max(max_road_distance, dist_m)
-            except Exception as e:
-                print(f"[⚠️ Route failed] {point1} → {point2}: {e}")
-                continue
-
-    if max_road_distance > 0:
-        print(f"Estimated road length: {int(max_road_distance)} meters")
-        return max_road_distance
-    else:
-        print("❌ Could not determine road length.")
-        return None
