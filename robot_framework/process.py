@@ -26,6 +26,7 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
     inspectors = data.get("inspectors", [])
     include_vejman = data.get("vejman", True)
     include_henstillinger = data.get("henstillinger", True)
+    include_indmeldte = data.get("indmeldte", True)
 
     if not inspectors:
         orchestrator_connection.log_info("No inspectors selected, skipping.")
@@ -63,6 +64,8 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             continue
         if item_type == "henstilling" and not include_henstillinger:
             continue
+        if item_type == "indmeldt" and not include_indmeldte:
+            continue
 
         lat = item.get("latitude")
         lon = item.get("longitude")
@@ -74,11 +77,17 @@ def process(orchestrator_connection: OrchestratorConnection, queue_element: Queu
             info = item.get("rovm_equipment_type", "")
             case_id = item.get("case_id")
             case_url = f"https://vejman.vd.dk/permissions/update.jsp?caseid={case_id}" if case_id else None
-        else:
+        elif item_type == "henstilling":
             case_ref = item.get("HenstillingId", "")
             info = item.get("Forseelse", "")
             pezuuid = item.get("PEZUUID")
             case_url = f"https://pez.giantleap.net/cases/view/{pezuuid}/case" if pezuuid else None
+        elif item_type == "indmeldt":
+            case_ref = item.get("case_number", "")
+            info = item.get("title", "")
+            case_url = "https://vejmankassen.adm.aarhuskommune.dk/tilsyn"
+        else:
+            continue
 
         locations.append({
             "coord": (lat, lon),

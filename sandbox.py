@@ -46,6 +46,10 @@ qe = make_queue_element_with_payload(
     "inspectors": [
         {
             "initial": "JADT",
+            "vehicle": "Cykel"
+        },
+        {
+            "initial": "JADT",
             "vehicle": "Bil"
         },
         {
@@ -54,7 +58,8 @@ qe = make_queue_element_with_payload(
         }
     ],
     "vejman": True,
-    "henstillinger": True
+    "henstillinger": False,
+    "indmeldte": True
     },
     queue_name="RegelRytteren",
     reference="Sandbox",
