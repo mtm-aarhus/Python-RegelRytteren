@@ -7,7 +7,7 @@ packages = ["robot_framework"]
 
 [project]
 name = "robot_framework"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="ITK Development", email="itk-rpa@mkb.aarhus.dk" },
 ]
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "OpenOrchestrator == 2.*",
+    "OpenOrchestrator == 3.*",
     "Pillow == 10.*",
     "requests == 2.32.3",
     "numpy == 2.2.4",
